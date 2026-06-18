@@ -7,7 +7,7 @@ import structlog
 from app.core.config import settings
 from app.core.database import create_all_tables
 from app.core.redis_client import get_redis, close_redis
-from app.api.v1 import auth, admin, feedback, analytics
+from app.api.v1 import auth, admin, feedback, analytics, admin_participants
 
 log = structlog.get_logger()
 
@@ -43,6 +43,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(feedback.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(admin_participants.router, prefix="/api/v1")
 
 
 @app.get("/health")
