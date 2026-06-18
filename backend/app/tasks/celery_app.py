@@ -20,6 +20,9 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_soft_time_limit=300,
     task_time_limit=600,
+    # Run tasks synchronously when using memory:// broker (no Redis required)
+    task_always_eager=settings.CELERY_BROKER_URL.startswith("memory://"),
+    task_eager_propagates=True,
     beat_schedule={
         "check-completed-batches": {
             "task": "app.tasks.celery_tasks.check_completed_batches",

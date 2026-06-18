@@ -7,6 +7,7 @@ import structlog
 from app.core.config import settings
 from app.core.database import create_all_tables
 from app.core.redis_client import get_redis, close_redis
+from app.core.seed import seed_database
 from app.api.v1 import auth, admin, feedback, analytics, admin_participants
 
 log = structlog.get_logger()
@@ -15,7 +16,12 @@ log = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("app.startup", name=settings.APP_NAME, version=settings.APP_VERSION)
-    await get_redis()
+    await create_all_tables()
+    await seed_database()
+    try:
+        await get_redis()
+    except Exception as e:
+        log.warning("app.redis_init_failed", error=str(e))
     yield
     await close_redis()
     log.info("app.shutdown")
@@ -33,7 +39,7 @@ app = FastAPI(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

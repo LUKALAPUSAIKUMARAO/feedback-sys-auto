@@ -12,19 +12,36 @@ _redis_client: Optional[Redis] = None
 async def get_redis() -> Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = aioredis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=20,
-        )
+        try:
+            client = aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=20,
+                socket_connect_timeout=2,
+            )
+            await client.ping()
+            _redis_client = client
+            log.info("redis.connected", url=settings.REDIS_URL)
+        except Exception as e:
+            log.warning("redis.unavailable_using_fakeredis", error=str(e))
+            try:
+                import fakeredis.aioredis as fakeredis_aioredis
+                _redis_client = fakeredis_aioredis.FakeRedis(decode_responses=True)
+                log.info("redis.fakeredis_active")
+            except ImportError:
+                log.error("redis.fakeredis_not_installed")
+                raise RuntimeError("Redis is not available and fakeredis is not installed") from e
     return _redis_client
 
 
 async def close_redis():
     global _redis_client
     if _redis_client:
-        await _redis_client.aclose()
+        try:
+            await _redis_client.aclose()
+        except Exception:
+            pass
         _redis_client = None
 
 

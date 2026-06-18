@@ -1,7 +1,7 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 sqlalchemy[asyncio]==2.0.36
-asyncpg==0.30.0
+aiosqlite==0.20.0
 alembic==1.14.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
@@ -10,11 +10,10 @@ passlib[bcrypt]==1.7.4
 python-multipart==0.0.17
 celery==5.4.0
 redis==5.2.1
+fakeredis==2.26.2
 groq==0.13.0
 google-generativeai==0.8.3
 sendgrid==6.11.0
-pgvector==0.3.6
-psycopg2-binary==2.9.10
 pandas==2.2.3
 numpy==2.2.0
 reportlab==4.2.5
