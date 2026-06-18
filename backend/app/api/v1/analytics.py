@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
 from sqlalchemy.orm import selectinload
@@ -26,7 +26,7 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 @router.get("/trainer/{trainer_id}", response_model=TrainerAnalyticsResponse)
 async def get_trainer_analytics(
-    trainer_id: uuid.UUID,
+    trainer_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):
@@ -293,6 +293,7 @@ async def chat_analytics(
 @router.post("/pipeline/trigger", response_model=PipelineRunOut)
 async def trigger_pipeline(
     payload: PipelineTriggerRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -314,15 +315,16 @@ async def trigger_pipeline(
     await db.commit()
     await db.refresh(run_log)
 
-    from app.tasks.celery_tasks import run_agent_pipeline
-    run_agent_pipeline.delay(str(payload.batch_id), force=payload.force)
+    from app.agents.orchestrator import AgentOrchestrator
+    orchestrator = AgentOrchestrator()
+    background_tasks.add_task(orchestrator.run_pipeline, str(payload.batch_id), force=payload.force)
 
     return run_log
 
 
 @router.get("/pipeline/runs/{batch_id}", response_model=list[PipelineRunOut])
 async def get_pipeline_runs(
-    batch_id: uuid.UUID,
+    batch_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):

@@ -41,7 +41,8 @@ class AgentOrchestrator:
                 select(PipelineRunLog)
                 .where(PipelineRunLog.batch_id == batch_id, PipelineRunLog.run_status == "pending")
                 .order_by(PipelineRunLog.created_at.desc())
-            )).scalar_one_or_none()
+                .limit(1)
+            )).scalars().first()
 
             if not run_log:
                 run_log = PipelineRunLog(batch_id=batch_id, run_status="pending", triggered_by="celery")

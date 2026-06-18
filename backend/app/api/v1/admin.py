@@ -87,7 +87,7 @@ async def list_trainers(
 
 @router.get("/trainers/{trainer_id}", response_model=TrainerOut)
 async def get_trainer(
-    trainer_id: uuid.UUID,
+    trainer_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):
@@ -105,7 +105,7 @@ async def get_trainer(
 
 @router.patch("/trainers/{trainer_id}", response_model=TrainerOut)
 async def update_trainer(
-    trainer_id: uuid.UUID,
+    trainer_id: str,
     payload: TrainerUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -216,7 +216,7 @@ async def list_batches(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: Optional[str] = None,
-    trainer_id: Optional[uuid.UUID] = None,
+    trainer_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):
@@ -238,7 +238,7 @@ async def list_batches(
 
 @router.get("/batches/{batch_id}", response_model=TrainingBatchWithRelations)
 async def get_batch(
-    batch_id: uuid.UUID,
+    batch_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):
@@ -257,7 +257,7 @@ async def get_batch(
 
 @router.post("/batches/{batch_id}/participants", response_model=BulkUploadResult, status_code=201)
 async def upload_participants(
-    batch_id: uuid.UUID,
+    batch_id: str,
     payload: BulkParticipantUpload,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -342,7 +342,7 @@ async def upload_participants(
 
 @router.post("/batches/{batch_id}/participants/csv", response_model=BulkUploadResult, status_code=201)
 async def upload_participants_csv(
-    batch_id: uuid.UUID,
+    batch_id: str,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -377,7 +377,7 @@ async def upload_participants_csv(
 
 @router.get("/batches/{batch_id}/participants", response_model=PaginatedResponse)
 async def list_batch_participants(
-    batch_id: uuid.UUID,
+    batch_id: str,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -401,7 +401,7 @@ async def list_batch_participants(
 
 @router.post("/batches/{batch_id}/send-feedback-links")
 async def send_feedback_links(
-    batch_id: uuid.UUID,
+    batch_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):

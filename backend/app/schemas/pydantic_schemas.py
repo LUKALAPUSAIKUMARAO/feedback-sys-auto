@@ -1,7 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import Optional, List, Any
 from datetime import datetime
-from uuid import UUID
 from enum import Enum
 
 
@@ -65,7 +64,7 @@ class OrganizationCreate(BaseModel):
     logo_url: Optional[str] = None
 
 class OrganizationOut(BaseModel):
-    id: UUID
+    id: str
     name: str
     domain: Optional[str]
     logo_url: Optional[str]
@@ -96,7 +95,7 @@ class TrainerUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class TrainerOut(BaseModel):
-    id: UUID
+    id: str
     full_name: str
     employee_id: str
     email: str
@@ -123,7 +122,7 @@ class TrainingProgramCreate(BaseModel):
     level: Optional[TrainingLevel] = None
 
 class TrainingProgramOut(BaseModel):
-    id: UUID
+    id: str
     title: str
     description: Optional[str]
     skills_covered: List[str]
@@ -138,8 +137,8 @@ class TrainingProgramOut(BaseModel):
 # ─── Training Batch ───────────────────────────────────────────────────────────
 
 class TrainingBatchCreate(BaseModel):
-    program_id: UUID
-    trainer_id: UUID
+    program_id: str
+    trainer_id: str
     batch_code: str = Field(min_length=2, max_length=100)
     title: Optional[str] = None
     start_datetime: datetime
@@ -156,9 +155,9 @@ class TrainingBatchCreate(BaseModel):
         return self
 
 class TrainingBatchOut(BaseModel):
-    id: UUID
-    program_id: UUID
-    trainer_id: UUID
+    id: str
+    program_id: str
+    trainer_id: str
     batch_code: str
     title: Optional[str]
     start_datetime: datetime
@@ -188,7 +187,7 @@ class ParticipantCreate(BaseModel):
     designation: Optional[str] = None
 
 class ParticipantOut(BaseModel):
-    id: UUID
+    id: str
     full_name: str
     email: str
     employee_id: str
@@ -270,7 +269,7 @@ class SentimentDistribution(BaseModel):
     neutral: float
 
 class TrainerAnalyticsResponse(BaseModel):
-    trainer_id: UUID
+    trainer_id: str
     trainer_name: str
     overall_health_score: float
     avg_rating: float
@@ -278,8 +277,8 @@ class TrainerAnalyticsResponse(BaseModel):
     total_responses: int
     ratings: RatingBreakdown
     sentiment: SentimentDistribution
-    top_themes: List[str]
-    recommendations: List[str]
+    top_themes: List[Any]
+    recommendations: List[Any]
     recent_snapshots: List[dict]
     risk_flag: bool
     risk_reason: Optional[str] = None
@@ -298,8 +297,8 @@ class OrgDashboardResponse(BaseModel):
 
 class ChatAnalyticsRequest(BaseModel):
     question: str = Field(min_length=5, max_length=500)
-    trainer_id: Optional[UUID] = None
-    batch_id: Optional[UUID] = None
+    trainer_id: Optional[str] = None
+    batch_id: Optional[str] = None
     time_range_days: int = Field(default=90, ge=7, le=365)
 
 class ChatAnalyticsResponse(BaseModel):
@@ -312,12 +311,12 @@ class ChatAnalyticsResponse(BaseModel):
 # ─── Pipeline ─────────────────────────────────────────────────────────────────
 
 class PipelineTriggerRequest(BaseModel):
-    batch_id: UUID
+    batch_id: str
     force: bool = False
 
 class PipelineRunOut(BaseModel):
-    id: UUID
-    batch_id: UUID
+    id: str
+    batch_id: str
     run_status: str
     started_at: Optional[datetime]
     completed_at: Optional[datetime]

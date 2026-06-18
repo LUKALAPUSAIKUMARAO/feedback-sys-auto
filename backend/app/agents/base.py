@@ -7,7 +7,7 @@ import structlog
 log = structlog.get_logger()
 
 GROQ_PRIMARY_MODEL = "llama-3.3-70b-versatile"
-GROQ_FAST_MODEL = "llama3-8b-8192"
+GROQ_FAST_MODEL = "llama-3.1-8b-instant"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
 
 
