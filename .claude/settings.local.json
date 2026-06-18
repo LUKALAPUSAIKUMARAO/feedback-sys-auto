@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Copy-Item \"c:\\\\Users\\\\devuser1\\\\Desktop\\\\feedback-system-auto\\\\backend\\\\.env.example\" \"c:\\\\Users\\\\devuser1\\\\Desktop\\\\feedback-system-auto\\\\backend\\\\.env\")",
+      "PowerShell(Get-Command python, python3, py -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Command node, npm -ErrorAction SilentlyContinue)",
+      "PowerShell(python --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(winget list redis 2>$null)",
+      "PowerShell(scoop list redis 2>$null)",
+      "PowerShell(try { $r = Invoke-RestMethod \"http://localhost:8000/api/docs\" -Method Get -TimeoutSec 5; Write-Host \"Backend responding\" } catch { Write-Host \"Backend error: $\\($_.Exception.Message\\)\" })",
+      "PowerShell(psql -U postgres -c \"SELECT datname FROM pg_database WHERE datname='feedback_platform';\" 2>&1)",
+      "PowerShell($env:PGPASSWORD = \"password\"; psql -U postgres -h localhost -c \"SELECT datname FROM pg_database WHERE datname='feedback_platform';\" -t 2>&1)",
+      "PowerShell($passwords = @\\(\"admin\", \"Admin@1234\", \"Admin@123\", \"1234\", \"root\", \"bilvantis\", \"Password1\", \"admin123\"\\); foreach \\($p in $passwords\\) { $env:PGPASSWORD = $p; $result = psql -U postgres -h localhost -c \"SELECT 1;\" -t 2>&1; if \\($result -match \"1\"\\) { Write-Host \"Password found: $p\"; break } else { Write-Host \"Failed: $p\" } })",
+      "PowerShell($env:PGPASSWORD = \"admin\"; psql -U postgres -h localhost -c \"CREATE DATABASE feedback_platform;\" 2>&1)",
+      "PowerShell(Get-ChildItem \"C:\\\\Users\\\\devuser1\\\\AppData\\\\Roaming\\\\postgresql\\\\\" -ErrorAction SilentlyContinue; Get-ChildItem \"$HOME\\\\.pgpass\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Content \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\data\\\\pg_hba.conf\" | Where-Object { $_ -notmatch \"^#\" -and $_ -match \"\\\\S\" })",
+      "PowerShell($env:PGPASSWORD = \"\"; & \"C:\\\\Program Files\\\\PostgreSQL\\\\18\\\\bin\\\\psql.exe\" -U postgres -h 127.0.0.1 -p 5432 -c \"SELECT version\\(\\);\" 2>&1)",
+      "PowerShell($body = '{\"email\":\"admin@bilvantis.io\",\"password\":\"Admin@1234\"}'; $r = Invoke-RestMethod \"http://localhost:8001/api/v1/auth/login\" -Method Post -ContentType \"application/json\" -Body $body -TimeoutSec 10; Write-Host \"LOGIN OK\"; Write-Host \"Role: $\\($r.role\\)\"; Write-Host \"Name: $\\($r.full_name\\)\"; Write-Host \"Token: $\\($r.access_token.Substring\\(0,50\\)\\)...\")",
+      "PowerShell($pids = \\(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue\\).OwningProcess | Sort-Object -Unique; foreach \\($p in $pids\\) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }; Write-Host \"Killed pids: $pids\")",
+      "PowerShell(Start-Sleep -Seconds 7; $body = '{\"email\":\"admin@bilvantis.io\",\"password\":\"Admin@1234\"}'; try { Invoke-RestMethod \"http://localhost:8001/api/v1/auth/login\" -Method Post -ContentType \"application/json\" -Body $body -TimeoutSec 5 } catch { Write-Host \"HTTP Error: $\\($_.Exception.Message\\)\" })",
+      "PowerShell($pids = \\(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue\\).OwningProcess | Sort-Object -Unique; foreach \\($p in $pids\\) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }; Start-Sleep 1; cd \"c:\\\\Users\\\\devuser1\\\\Desktop\\\\feedback-system-auto\\\\backend\"; .\\\\.venv\\\\Scripts\\\\python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --log-level debug 2>&1 | Out-File \"C:\\\\Users\\\\devuser1\\\\Desktop\\\\uvicorn.log\" -Encoding utf8)",
+      "PowerShell($pids = \\(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue\\).OwningProcess | Sort-Object -Unique; Write-Host \"PIDs on 8001: $pids\"; foreach \\($p in $pids\\) { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue; Write-Host \"Killed $p\" }; Start-Sleep -Seconds 2; $check = \\(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue\\); Write-Host \"Port 8001 still in use: $\\($check -ne $null\\)\")",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue)",
+      "PowerShell(Get-Process -Id 16168 | Select-Object Name, Id, MainWindowTitle; Stop-Process -Id 16168 -Force; Start-Sleep 2; Write-Host \"Cleared. Port 8001 free: $\\(\\(Get-NetTCPConnection -LocalPort 8001 -ErrorAction SilentlyContinue\\) -eq $null\\)\")",
+      "PowerShell(@\\(16168, 13740, 12608\\) | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue; Write-Host \"Killed $_\" }; Start-Sleep -Seconds 3; $remaining = netstat -ano | Select-String \":8001 \"; Write-Host \"Remaining on 8001: $\\($remaining.Count\\)\")",
+      "PowerShell(Get-Process python -ErrorAction SilentlyContinue)",
+      "PowerShell(Start-Sleep -Seconds 8; try { $r = Invoke-RestMethod \"http://localhost:8002/health\" -TimeoutSec 5; Write-Host \"Backend up: $\\($r.status\\)\" } catch { Write-Host \"Not up: $\\($_.Exception.Message\\)\" }; Get-Content \"C:\\\\Users\\\\devuser1\\\\Desktop\\\\uvicorn8002.log\" -ErrorAction SilentlyContinue | Select-Object -Last 10)",
+      "PowerShell($body = '{\"email\":\"admin@bilvantis.io\",\"password\":\"Admin@1234\"}'; $r = Invoke-RestMethod \"http://localhost:8002/api/v1/auth/login\" -Method Post -ContentType \"application/json\" -Body $body -TimeoutSec 10; Write-Host \"LOGIN OK\"; Write-Host \"Role: $\\($r.role\\)\"; Write-Host \"Name: $\\($r.full_name\\)\"; $global:TOKEN = $r.access_token; Write-Host \"Token saved.\")"
+    ]
+  }
+}

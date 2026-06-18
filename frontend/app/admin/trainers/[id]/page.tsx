@@ -5,7 +5,8 @@ import { analyticsApi, trainersApi } from "@/lib/api";
 import { formatScore, scoreTierColor, tierBadge, cn, sentimentColor } from "@/lib/utils";
 import {
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar
+  ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, BarChart, Bar,
+  Cell
 } from "recharts";
 import { ArrowLeft, AlertTriangle, TrendingUp, TrendingDown, Star, Loader2 } from "lucide-react";
 import { toast } from "sonner";
