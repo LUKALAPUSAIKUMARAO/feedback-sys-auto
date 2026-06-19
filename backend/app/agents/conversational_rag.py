@@ -1,5 +1,4 @@
 """Agent 7: Conversational Analytics Agent (RAG)"""
-import json
 from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
@@ -31,15 +30,7 @@ DO NOT:
 - Hallucinate data points not in the context
 - Make up trends from single data points
 - Use vague language like "generally" or "it appears"
-
-OUTPUT FORMAT (strict JSON):
-{
-  "answer": "<full prose answer>",
-  "data_points_used": [{"source": "<batch or record ID>", "fact": "<specific data point cited>"}],
-  "confidence": <float 0.0-1.0>,
-  "data_gaps": ["<description of missing data that would improve the answer>"],
-  "follow_up_questions": ["<1-2 follow-up questions the user might want to ask>"]
-}"""
+- Output JSON, code blocks, or any structured markup — respond in plain readable prose only."""
 
 
 class ConversationalRAGAgent(BaseAgent):
@@ -94,21 +85,13 @@ Answer the question using the context above."""
             max_tokens=3000,
         )
 
-        try:
-            if "```json" in raw_output:
-                raw_output = raw_output.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw_output:
-                raw_output = raw_output.split("```")[1].split("```")[0].strip()
-            result = json.loads(raw_output)
-            answer = result.get("answer", raw_output)
-            sources = result.get("data_points_used", [])
-            confidence = float(result.get("confidence", 0.7))
-        except (json.JSONDecodeError, ValueError):
-            answer = raw_output
-            sources = []
-            confidence = 0.6
+        # Strip any accidental code fences the model may add
+        answer = raw_output.strip()
+        if answer.startswith("```"):
+            answer = answer.split("```")[-2] if answer.count("```") >= 2 else answer.replace("```", "")
+            answer = answer.strip()
 
-        return answer, sources, confidence
+        return answer, [], 0.8
 
     async def _retrieve_context(
         self,
