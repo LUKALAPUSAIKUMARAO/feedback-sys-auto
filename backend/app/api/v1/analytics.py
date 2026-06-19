@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.core.redis_client import cache_get, cache_set
 from app.models.db_models import (
     Trainer, TrainingBatch, FeedbackSubmission, TrainerMetricsSnapshot,
-    Participant, TrainingProgram, PipelineRunLog
+    Participant, TrainingProgram, PipelineRunLog, BatchRoster
 )
 from app.schemas.pydantic_schemas import (
     TrainerAnalyticsResponse, OrgDashboardResponse,
@@ -639,3 +639,127 @@ async def get_trainer_history(
         best_health_score=safe_float(best.health_score) if best else 0.0,
         worst_health_score=safe_float(worst.health_score) if worst else 0.0,
     )
+
+
+# ─── Campaigns Overview ───────────────────────────────────────────────────────
+
+@router.get("/campaigns")
+async def list_campaigns(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_management),
+):
+    """All batches with campaign delivery metrics for the Campaigns page."""
+    batches = (await db.execute(
+        select(TrainingBatch)
+        .options(
+            selectinload(TrainingBatch.trainer),
+            selectinload(TrainingBatch.program),
+        )
+        .where(TrainingBatch.organization_id == current_user.organization_id)
+        .order_by(desc(TrainingBatch.created_at))
+    )).scalars().all()
+
+    result = []
+    for batch in batches:
+        bid = str(batch.id)
+        submissions = (await db.execute(
+            select(func.count(FeedbackSubmission.id)).where(FeedbackSubmission.batch_id == bid)
+        )).scalar() or 0
+
+        links_sent = (await db.execute(
+            select(func.count(BatchRoster.id)).where(
+                BatchRoster.batch_id == bid,
+                BatchRoster.feedback_link_sent == True,
+            )
+        )).scalar() or 0
+
+        enrolled = batch.actual_enrolled or 0
+        result.append({
+            "batch_id": bid,
+            "batch_code": batch.batch_code,
+            "title": batch.title or (batch.program.title if batch.program else batch.batch_code),
+            "trainer_name": batch.trainer.full_name if batch.trainer else "Unknown",
+            "program_title": batch.program.title if batch.program else "Unknown",
+            "status": batch.status,
+            "start_datetime": batch.start_datetime.isoformat() if batch.start_datetime else None,
+            "end_datetime": batch.end_datetime.isoformat() if batch.end_datetime else None,
+            "survey_deadline": batch.survey_deadline.isoformat() if batch.survey_deadline else None,
+            "enrolled": enrolled,
+            "links_sent": links_sent,
+            "links_sent_pct": round(links_sent / enrolled * 100) if enrolled else 0,
+            "submitted": submissions,
+            "submitted_pct": round(submissions / enrolled * 100) if enrolled else 0,
+        })
+
+    return result
+
+
+# ─── System Health ────────────────────────────────────────────────────────────
+
+@router.get("/health/status")
+async def system_health_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_management),
+):
+    """Returns status of all platform subsystems."""
+    from app.core.redis_client import get_redis
+
+    # Database check
+    try:
+        await db.execute(select(func.count()).select_from(Trainer))
+        db_status = "ok"
+    except Exception as e:
+        db_status = f"error: {e}"
+
+    # Redis check
+    try:
+        redis = await get_redis()
+        await redis.ping()
+        redis_status = "ok"
+        redis_type = "real"
+    except Exception:
+        try:
+            import fakeredis.aioredis as fr
+            redis_status = "ok"
+            redis_type = "fakeredis (in-memory)"
+        except Exception:
+            redis_status = "unavailable"
+            redis_type = "none"
+
+    # GROQ check
+    groq_configured = bool(settings.GROQ_API_KEY and len(settings.GROQ_API_KEY) > 10)
+
+    # Email check
+    smtp_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
+    sendgrid_configured = bool(settings.SENDGRID_API_KEY)
+    email_provider = "smtp" if smtp_configured else ("sendgrid" if sendgrid_configured else "none (logging only)")
+
+    # Aggregate stats
+    total_trainers = (await db.execute(select(func.count(Trainer.id)))).scalar() or 0
+    total_batches = (await db.execute(select(func.count(TrainingBatch.id)))).scalar() or 0
+    total_responses = (await db.execute(select(func.count(FeedbackSubmission.id)))).scalar() or 0
+
+    latest_run = (await db.execute(
+        select(PipelineRunLog).order_by(desc(PipelineRunLog.created_at)).limit(1)
+    )).scalars().first()
+
+    return {
+        "overall": "healthy" if db_status == "ok" else "degraded",
+        "services": {
+            "database": {"status": db_status, "type": "SQLite"},
+            "cache": {"status": redis_status, "type": redis_type},
+            "ai_pipeline": {"status": "ok" if groq_configured else "not configured", "model": "llama-3.3-70b-versatile"},
+            "email": {"status": "ok" if (smtp_configured or sendgrid_configured) else "warning", "provider": email_provider},
+        },
+        "stats": {
+            "trainers": total_trainers,
+            "batches": total_batches,
+            "feedback_responses": total_responses,
+        },
+        "last_pipeline_run": {
+            "id": str(latest_run.id) if latest_run else None,
+            "status": latest_run.run_status if latest_run else None,
+            "created_at": latest_run.created_at.isoformat() if latest_run else None,
+        },
+        "version": settings.APP_VERSION,
+    }

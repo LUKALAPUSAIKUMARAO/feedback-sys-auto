@@ -6,15 +6,19 @@ import Cookies from "js-cookie";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, Users, BookOpen, CalendarDays,
-  UserCircle2, LogOut, ChevronRight, Bell, Settings
+  UserCircle2, LogOut, ChevronRight, Bell, Settings,
+  Megaphone, BarChart3, MessageSquareCode, HeartPulse
 } from "lucide-react";
 
 const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/batches", label: "Training Batches", icon: CalendarDays },
   { href: "/admin/trainers", label: "Trainers", icon: UserCircle2 },
-  { href: "/admin/programs", label: "Programs", icon: BookOpen },
-  { href: "/admin/batches", label: "Batches", icon: CalendarDays },
-  { href: "/admin/participants", label: "Participants", icon: Users },
+  { href: "/admin/campaigns", label: "Campaigns", icon: Megaphone },
+  { href: "/admin/reports", label: "Reports", icon: BarChart3 },
+  { href: "/admin/ai-chat", label: "AI Analytics Chat", icon: MessageSquareCode },
+  { href: "/admin/health", label: "System Health", icon: HeartPulse },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

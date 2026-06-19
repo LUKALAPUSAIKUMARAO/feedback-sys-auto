@@ -91,4 +91,6 @@ export const analyticsApi = {
   chat: (data: object) => api.post("/analytics/chat", data).then((r) => r.data),
   triggerPipeline: (data: object) => api.post("/analytics/pipeline/trigger", data).then((r) => r.data),
   pipelineRuns: (batchId: string) => api.get(`/analytics/pipeline/runs/${batchId}`).then((r) => r.data),
+  campaigns: () => api.get("/analytics/campaigns").then((r) => r.data),
+  healthStatus: () => api.get("/analytics/health/status").then((r) => r.data),
 };

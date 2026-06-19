@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 from sqlalchemy.orm import selectinload
@@ -87,6 +87,7 @@ async def validate_token(token: str, db: AsyncSession = Depends(get_db)):
 async def submit_feedback(
     payload: FeedbackSubmitRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     # ── Step 1: Decode and validate JWT ──────────────────────────────────────
@@ -180,8 +181,9 @@ async def submit_feedback(
         )).scalar_one_or_none()
 
         if batch and response_count >= batch.feedback_threshold:
-            from app.tasks.celery_tasks import run_agent_pipeline
-            run_agent_pipeline.delay(str(batch_id))
+            from app.agents.orchestrator import AgentOrchestrator
+            orchestrator = AgentOrchestrator()
+            background_tasks.add_task(orchestrator.run_pipeline, str(batch_id), force=False)
 
         return FeedbackSubmitResponse(
             success=True,

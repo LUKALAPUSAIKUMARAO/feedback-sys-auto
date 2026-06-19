@@ -1,25 +1,15 @@
+import asyncio
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from app.core.config import settings
 import structlog
 
 log = structlog.get_logger()
 
 
-async def send_feedback_email(
-    to_email: str,
-    to_name: str,
-    feedback_url: str,
-    batch_title: str,
-    trainer_name: str,
-    is_reminder: bool = False,
-) -> bool:
-    subject = (
-        f"Reminder: Share Your Feedback — {batch_title}"
-        if is_reminder
-        else f"Your Feedback Matters — {batch_title}"
-    )
-
-    html_content = f"""
-<!DOCTYPE html>
+def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name: str, to_email: str, is_reminder: bool) -> str:
+    return f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -47,7 +37,7 @@ async def send_feedback_email(
     <div class="body">
       <p>Hi {to_name},</p>
       <p>{"We noticed you haven't shared your feedback yet. There's still time!" if is_reminder else f"Thank you for attending <strong>{batch_title}</strong> with {trainer_name}."}</p>
-      <p>Your feedback directly improves training quality for your entire organization. It takes less than 3 minutes and is {"completely " if True else ""}optional to complete anonymously.</p>
+      <p>Your feedback directly improves training quality for your entire organization. It takes less than 3 minutes and is completely optional to complete anonymously.</p>
       <div class="meta">
         <p><strong>Training:</strong> {batch_title}</p>
         <p><strong>Trainer:</strong> {trainer_name}</p>
@@ -62,11 +52,59 @@ async def send_feedback_email(
 </body>
 </html>"""
 
-    if not settings.SENDGRID_API_KEY:
-        log.warning("email.sendgrid_not_configured", to=to_email, subject=subject)
-        log.info("email.simulated_send", to=to_email, feedback_url=feedback_url)
-        return True
 
+async def send_feedback_email(
+    to_email: str,
+    to_name: str,
+    feedback_url: str,
+    batch_title: str,
+    trainer_name: str,
+    is_reminder: bool = False,
+) -> bool:
+    subject = (
+        f"Reminder: Share Your Feedback — {batch_title}"
+        if is_reminder
+        else f"Your Feedback Matters — {batch_title}"
+    )
+    html_content = _build_html(to_name, feedback_url, batch_title, trainer_name, to_email, is_reminder)
+
+    # Try SMTP first (real delivery)
+    if settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL:
+        return await _send_smtp(to_email, subject, html_content)
+
+    # Fallback: SendGrid
+    if settings.SENDGRID_API_KEY:
+        return await _send_sendgrid(to_email, subject, html_content)
+
+    # Fallback: log only (dev mode)
+    log.warning("email.no_provider_configured", to=to_email, subject=subject)
+    log.info("email.simulated_send", to=to_email, feedback_url=feedback_url)
+    return True
+
+
+async def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
+    def _blocking_send():
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+        msg["To"] = to_email
+        msg.attach(MIMEText(html_content, "html"))
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+            server.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
+
+    try:
+        await asyncio.to_thread(_blocking_send)
+        log.info("email.smtp_sent", to=to_email)
+        return True
+    except Exception as e:
+        log.error("email.smtp_failed", to=to_email, error=str(e))
+        return False
+
+
+async def _send_sendgrid(to_email: str, subject: str, html_content: str) -> bool:
     try:
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail
@@ -78,8 +116,8 @@ async def send_feedback_email(
         )
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
         response = sg.send(message)
-        log.info("email.sent", to=to_email, status=response.status_code)
+        log.info("email.sendgrid_sent", to=to_email, status=response.status_code)
         return response.status_code in (200, 202)
     except Exception as e:
-        log.error("email.send_failed", to=to_email, error=str(e))
+        log.error("email.sendgrid_failed", to=to_email, error=str(e))
         return False
