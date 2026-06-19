@@ -23,6 +23,9 @@ from app.schemas.pydantic_schemas import (
 )
 from app.models.db_models import FeedbackSubmission
 from app.api.v1.auth import require_admin, require_admin_or_management
+import structlog
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -487,9 +490,11 @@ async def send_feedback_links(
             elif roster.feedback_token:
                 feedback_url = f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
             else:
-                continue  # no link available for this participant
+                log.warning("send_links.no_url", participant=roster.participant.email)
+                failed_count += 1
+                continue
 
-            await send_feedback_email(
+            ok = await send_feedback_email(
                 to_email=roster.participant.email,
                 to_name=roster.participant.full_name,
                 feedback_url=feedback_url,
@@ -497,12 +502,16 @@ async def send_feedback_links(
                 trainer_name=batch.trainer.full_name if batch.trainer else "Trainer",
                 use_google_form=bool(google_form_url),
             )
-            roster.feedback_link_sent = True
-            roster.feedback_link_sent_at = datetime.now(timezone.utc)
-            sent_count += 1
+            if ok:
+                roster.feedback_link_sent = True
+                roster.feedback_link_sent_at = datetime.now(timezone.utc)
+                sent_count += 1
+            else:
+                failed_count += 1
+                log.error("send_links.email_failed", participant=roster.participant.email, batch_id=batch_id)
         except Exception as e:
             failed_count += 1
-            pass
+            log.error("send_links.exception", participant=getattr(roster.participant, "email", "unknown"), error=str(e))
 
     await db.execute(
         update(TrainingBatch).where(TrainingBatch.id == batch_id).values(status="survey_open")

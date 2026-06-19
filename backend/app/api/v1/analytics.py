@@ -81,8 +81,18 @@ async def get_trainer_analytics(
     avg_time = safe_float(ratings_result.avg_time)
     avg_practical = safe_float(ratings_result.avg_practical)
     avg_content = safe_float(ratings_result.avg_content)
-    overall = round((avg_technical + avg_comm + avg_engagement + avg_time + avg_practical + avg_content) / 6, 2)
     total_responses = ratings_result.total or 0
+
+    # Only average over fields that have actual data (avoid diluting with zeros for sparse submissions)
+    _rating_vals = [r for r in [avg_technical, avg_comm, avg_engagement, avg_time, avg_practical, avg_content] if r > 0]
+    overall = round(sum(_rating_vals) / len(_rating_vals), 2) if _rating_vals else 0.0
+
+    # Live batch count — how many distinct batches have at least one submission for this trainer
+    live_batch_count = (await db.execute(
+        select(func.count(func.distinct(FeedbackSubmission.batch_id)))
+        .join(TrainingBatch, TrainingBatch.id == FeedbackSubmission.batch_id)
+        .where(TrainingBatch.trainer_id == trainer_id)
+    )).scalar() or 0
 
     # Sentiment distribution
     sentiment_result = (await db.execute(
@@ -122,10 +132,12 @@ async def get_trainer_analytics(
         recommendations = json.loads(recommendations)
 
     health_score = safe_float(trainer.overall_health_score)
-    # Use live-computed overall when pipeline hasn't run yet (sessions=0 but responses exist)
+    # Use live-computed values when pipeline hasn't run yet (sessions=0 but responses exist)
     pipeline_pending = trainer.total_sessions == 0 and total_responses > 0
     effective_health = overall if pipeline_pending else health_score
     effective_avg_rating = overall if pipeline_pending else safe_float(trainer.avg_rating)
+    # Use live batch count when pipeline is pending, otherwise trust pipeline value
+    effective_sessions = live_batch_count if pipeline_pending else trainer.total_sessions
     # Only flag risk when we have actual data
     risk_flag = effective_health < 3.0 and total_responses > 0
 
@@ -141,7 +153,7 @@ async def get_trainer_analytics(
         trainer_name=trainer.full_name,
         overall_health_score=effective_health,
         avg_rating=effective_avg_rating,
-        total_sessions=trainer.total_sessions,
+        total_sessions=effective_sessions,
         total_responses=total_responses,
         ratings=RatingBreakdown(
             technical_knowledge=avg_technical,
