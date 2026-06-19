@@ -11,6 +11,14 @@ import {
 import { ArrowLeft, AlertTriangle, TrendingUp, TrendingDown, Star, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+function getTier(score: number): string {
+  if (score >= 4.5) return "Elite";
+  if (score >= 4.0) return "Strong";
+  if (score >= 3.5) return "Satisfactory";
+  if (score >= 3.0) return "Needs Improvement";
+  return "At Risk";
+}
+
 export default function TrainerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -81,8 +89,8 @@ export default function TrainerDetailPage() {
             <p className={cn("text-3xl font-bold tabular-nums", scoreTierColor(analytics.overall_health_score))}>
               {formatScore(analytics.overall_health_score)} / 5
             </p>
-            <span className={cn("risk-badge mt-1", tierBadge(analytics.recent_snapshots?.[0]?.tier || ""))}>
-              {analytics.recent_snapshots?.[0]?.tier || "—"}
+            <span className={cn("risk-badge mt-1", tierBadge(analytics.recent_snapshots?.[0]?.tier || getTier(analytics.overall_health_score)))}>
+              {analytics.recent_snapshots?.[0]?.tier || getTier(analytics.overall_health_score)}
             </span>
           </div>
         </div>
@@ -95,6 +103,17 @@ export default function TrainerDetailPage() {
           <div>
             <p className="text-sm font-semibold text-red-800">Performance Risk Flag</p>
             <p className="text-sm text-red-700">{analytics.risk_reason}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Preliminary Analysis Banner */}
+      {analytics.total_sessions === 0 && analytics.total_responses > 0 && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <Loader2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-semibold text-blue-800">Preliminary Analysis</p>
+            <p className="text-sm text-blue-700">Scores computed from {analytics.total_responses} response(s). Run AI Pipeline for a full analysis with themes and recommendations.</p>
           </div>
         </div>
       )}

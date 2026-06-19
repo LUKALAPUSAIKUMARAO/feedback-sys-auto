@@ -59,17 +59,17 @@ export default function ReportsPage() {
 
   function downloadCSV() {
     const rows = [
-      ["Trainer", "Employee ID", "Email", "Batches", "Avg Rating", "Responses", "Health Score"],
+      ["Trainer", "Employee ID", "Email", "Sessions", "Avg Rating", "Responses", "Health Score"],
       ...trainers.map((t) => {
         const h = histories[t.id];
         return [
           t.full_name,
           t.employee_id,
           t.email,
-          h?.total_batches ?? 0,
-          h?.overall_avg?.toFixed(2) ?? "—",
+          h?.total_sessions ?? 0,
+          h?.avg_rating?.toFixed(2) ?? "—",
           h?.total_responses ?? 0,
-          h?.health_score?.toFixed(2) ?? "—",
+          h?.overall_health_score?.toFixed(2) ?? "—",
         ];
       }),
     ];
@@ -88,6 +88,10 @@ export default function ReportsPage() {
       <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
     </div>
   );
+
+  const validHistories = Object.values(histories).filter((h): h is any => h !== null && h?.total_responses > 0);
+  const avgRating = validHistories.length > 0 ? validHistories.reduce((s, h) => s + (h?.avg_rating || 0), 0) / validHistories.length : 0;
+  const completionRate = dashData?.total_participants > 0 ? (dashData.total_feedback_responses / dashData.total_participants * 100) : 0;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -112,10 +116,10 @@ export default function ReportsPage() {
       {dashData && (
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: "Total Responses", value: dashData.total_feedback_count ?? 0, icon: Users },
-            { label: "Avg Rating", value: (dashData.avg_rating ?? 0).toFixed(2), icon: Star },
-            { label: "Avg Health Score", value: (dashData.avg_health_score ?? 0).toFixed(2), icon: Award },
-            { label: "Completion Rate", value: `${(dashData.completion_rate ?? 0).toFixed(1)}%`, icon: TrendingUp },
+            { label: "Total Responses", value: dashData.total_feedback_responses ?? 0, icon: Users },
+            { label: "Avg Rating", value: avgRating.toFixed(2), icon: Star },
+            { label: "Avg Health Score", value: (dashData.avg_org_health_score ?? 0).toFixed(2), icon: Award },
+            { label: "Completion Rate", value: `${completionRate.toFixed(1)}%`, icon: TrendingUp },
           ].map((kpi) => (
             <div key={kpi.label} className="stat-card text-center">
               <kpi.icon className="w-5 h-5 text-blue-500 mx-auto mb-2" />
@@ -158,30 +162,30 @@ export default function ReportsPage() {
                       </div>
                     </td>
                     <td className="font-mono text-xs text-slate-500">{t.employee_id}</td>
-                    <td className="text-center">{h?.total_batches ?? 0}</td>
+                    <td className="text-center">{h?.total_sessions ?? 0}</td>
                     <td className="text-center">{h?.total_responses ?? 0}</td>
                     <td>
-                      {h?.overall_avg ? <ScoreBadge value={h.overall_avg} /> : <span className="text-slate-300 text-xs">—</span>}
+                      {h?.avg_rating ? <ScoreBadge value={h.avg_rating} /> : <span className="text-slate-300 text-xs">—</span>}
                     </td>
                     <td>
-                      {h?.health_score ? (
+                      {h?.overall_health_score ? (
                         <div className="flex items-center gap-1.5">
                           <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(h.health_score * 20, 100)}%` }} />
+                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min(h.overall_health_score * 20, 100)}%` }} />
                           </div>
-                          <span className="text-xs font-medium text-slate-600">{h.health_score.toFixed(1)}</span>
+                          <span className="text-xs font-medium text-slate-600">{h.overall_health_score.toFixed(1)}</span>
                         </div>
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>
                     <td>
-                      {h?.sentiment_positive != null ? (
+                      {h?.sentiment?.positive != null ? (
                         <div className="flex items-center gap-1">
-                          {h.sentiment_positive >= 60 ? (
+                          {h.sentiment.positive >= 60 ? (
                             <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
                           ) : (
                             <TrendingDown className="w-3.5 h-3.5 text-red-400" />
                           )}
-                          <span className="text-xs text-slate-600">{h.sentiment_positive.toFixed(0)}% +ve</span>
+                          <span className="text-xs text-slate-600">{h.sentiment.positive.toFixed(0)}% +ve</span>
                         </div>
                       ) : <span className="text-slate-300 text-xs">—</span>}
                     </td>

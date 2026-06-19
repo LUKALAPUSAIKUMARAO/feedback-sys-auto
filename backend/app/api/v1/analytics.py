@@ -1,3 +1,4 @@
+# analytics.py - v2 with live health score fix
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, and_
@@ -8,7 +9,7 @@ import uuid, json
 
 from app.core.database import get_db
 from app.core.config import settings
-from app.core.redis_client import cache_get, cache_set
+from app.core.redis_client import cache_get, cache_set, cache_delete
 from app.models.db_models import (
     Trainer, TrainingBatch, FeedbackSubmission, TrainerMetricsSnapshot,
     Participant, TrainingProgram, PipelineRunLog, BatchRoster
@@ -36,7 +37,16 @@ async def get_trainer_analytics(
     cache_key = f"analytics:trainer:{trainer_id}"
     cached = await cache_get(cache_key)
     if cached:
-        return TrainerAnalyticsResponse.model_validate_json(cached)
+        # Invalidate stale cache: if cached data shows sessions=0, health=0 but has responses,
+        # the pipeline hasn't run yet and live computation gives the correct result
+        try:
+            cached_data = TrainerAnalyticsResponse.model_validate_json(cached)
+            if cached_data.total_sessions == 0 and cached_data.total_responses > 0 and cached_data.overall_health_score == 0.0:
+                await cache_delete(cache_key)
+            else:
+                return cached_data
+        except Exception:
+            return TrainerAnalyticsResponse.model_validate_json(cached)
 
     trainer = (await db.execute(
         select(Trainer).where(
@@ -112,13 +122,25 @@ async def get_trainer_analytics(
         recommendations = json.loads(recommendations)
 
     health_score = safe_float(trainer.overall_health_score)
-    risk_flag = health_score < 3.0
+    # Use live-computed overall when pipeline hasn't run yet (sessions=0 but responses exist)
+    pipeline_pending = trainer.total_sessions == 0 and total_responses > 0
+    effective_health = overall if pipeline_pending else health_score
+    effective_avg_rating = overall if pipeline_pending else safe_float(trainer.avg_rating)
+    # Only flag risk when we have actual data
+    risk_flag = effective_health < 3.0 and total_responses > 0
+
+    def _tier(score: float) -> str:
+        if score >= 4.5: return "Elite"
+        if score >= 4.0: return "Strong"
+        if score >= 3.5: return "Satisfactory"
+        if score >= 3.0: return "Needs Improvement"
+        return "At Risk"
 
     response = TrainerAnalyticsResponse(
         trainer_id=trainer_id,
         trainer_name=trainer.full_name,
-        overall_health_score=health_score,
-        avg_rating=safe_float(trainer.avg_rating),
+        overall_health_score=effective_health,
+        avg_rating=effective_avg_rating,
         total_sessions=trainer.total_sessions,
         total_responses=total_responses,
         ratings=RatingBreakdown(
@@ -140,14 +162,15 @@ async def get_trainer_analytics(
                 "overall_avg": safe_float(s.overall_avg),
                 "health_score": safe_float(s.health_score),
                 "response_count": s.response_count,
+                "tier": _tier(safe_float(s.health_score)),
             }
             for s in snapshots
         ],
         risk_flag=risk_flag,
-        risk_reason="Health score below 3.0 threshold" if risk_flag else None,
+        risk_reason="Health score below 3.0 threshold — run AI Pipeline to confirm" if risk_flag else None,
     )
 
-    await cache_set(cache_key, response.model_dump_json(), ttl=300)
+    await cache_set(cache_key, response.model_dump_json(), ttl=60)
     return response
 
 

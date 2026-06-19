@@ -114,6 +114,11 @@ export default function CampaignsPage() {
                       {formatDateTime(c.start_datetime)} → {formatDateTime(c.end_datetime)}
                     </p>
                   )}
+                  {c.survey_deadline && (
+                    <p className="text-xs text-amber-500 mt-0.5">
+                      Deadline: {new Date(c.survey_deadline).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
 
                 {/* Stats */}
@@ -137,7 +142,7 @@ export default function CampaignsPage() {
                     <div className="flex items-center gap-1 justify-center text-emerald-600">
                       <CheckCircle className="w-3.5 h-3.5" />
                       <span className="font-bold">{c.submitted}</span>
-                      <span className="text-xs text-slate-400">({c.submitted_pct}%)</span>
+                      {c.enrolled > 0 && <span className="text-xs text-slate-400">({Math.min(c.submitted_pct, 100)}%)</span>}
                     </div>
                     <p className="text-2xs text-slate-400 mt-0.5">Submitted</p>
                   </div>
@@ -147,8 +152,9 @@ export default function CampaignsPage() {
                 <div className="flex flex-col gap-2 shrink-0">
                   <button
                     onClick={() => handleSendLinks(c.batch_id)}
-                    disabled={sendingId === c.batch_id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                    disabled={sendingId === c.batch_id || c.enrolled === 0}
+                    title={c.enrolled === 0 ? "Upload participants first" : "Send feedback links to all participants"}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-medium rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {sendingId === c.batch_id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     Send Links
@@ -178,7 +184,7 @@ export default function CampaignsPage() {
                 <div className="mt-4 pt-3 border-t border-slate-50">
                   <div className="flex items-center justify-between text-2xs text-slate-400 mb-1.5">
                     <span>Response Progress</span>
-                    <span className="font-medium text-slate-600">{c.submitted_pct}% complete</span>
+                    <span className="font-medium text-slate-600">{Math.min(c.submitted_pct, 100)}% response rate</span>
                   </div>
                   <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div
