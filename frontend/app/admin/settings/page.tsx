@@ -1,8 +1,69 @@
 "use client";
 import { useState } from "react";
-import { Settings, Mail, Lock, Sliders, Save, Send, CheckCircle, Loader2, Info, Eye, EyeOff } from "lucide-react";
+import { Settings, Mail, Lock, Sliders, Save, Send, CheckCircle, Loader2, Info, Eye, EyeOff, Code2, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+
+const APPS_SCRIPT = `// ═══════════════════════════════════════════════════════════════
+// Bilvantis TIP — Google Forms Webhook Trigger
+// Extensions → Apps Script → paste → Save → Add trigger (onFormSubmit)
+// ═══════════════════════════════════════════════════════════════
+const WEBHOOK_URL  = 'http://YOUR_SERVER_IP:8002/api/v1/webhook/feedback';
+const BATCH_ID     = 'PASTE_BATCH_UUID_HERE';
+
+const COL = {
+  email:     'Your email (optional, for follow-up)',
+  tech:      'Rate Technical Knowledge',
+  comm:      'Rate Communication Skills',
+  engage:    'Rate Session Engagement',
+  time:      'Rate Time Management',
+  practical: 'Rate Practical Learning Value',
+  content:   'Rate Content Quality',
+  positive:  'What did you like most about this training?',
+  improve:   'What could be improved?',
+  overall:   'Overall comments',
+};
+
+function onFormSubmit(e) {
+  try {
+    var response   = e.response;
+    var responseId = response.getId();
+    var timestamp  = response.getTimestamp().toISOString();
+    var answers    = {};
+    response.getItemResponses().forEach(function(item) {
+      answers[item.getItem().getTitle()] = item.getResponse();
+    });
+    function rating(key) {
+      var v = parseInt(answers[COL[key]], 10);
+      return isNaN(v) ? null : Math.min(5, Math.max(1, v));
+    }
+    var payload = {
+      batch_id:                     BATCH_ID,
+      google_response_id:           responseId,
+      timestamp:                    timestamp,
+      respondent_email:             answers[COL.email] || null,
+      rating_technical_knowledge:   rating('tech'),
+      rating_communication:         rating('comm'),
+      rating_session_engagement:    rating('engage'),
+      rating_time_management:       rating('time'),
+      rating_practical_learning:    rating('practical'),
+      rating_content_quality:       rating('content'),
+      free_text_positive:           answers[COL.positive] || null,
+      free_text_improve:            answers[COL.improve]  || null,
+      free_text_overall:            answers[COL.overall]  || null,
+    };
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    };
+    var result = UrlFetchApp.fetch(WEBHOOK_URL, options);
+    Logger.log('Webhook: ' + result.getContentText());
+  } catch(err) {
+    Logger.log('Error: ' + err.toString());
+  }
+}`;
 
 export default function SettingsPage() {
   const [smtp, setSmtp] = useState({
@@ -184,6 +245,42 @@ export default function SettingsPage() {
           <p className="text-xs text-slate-500">
             After updating the <code className="font-mono bg-slate-100 px-1 rounded">.env</code> file, restart the backend server for changes to take effect.
           </p>
+        </div>
+      </div>
+
+      {/* Google Forms Apps Script Guide */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-card">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+          <Code2 className="w-4 h-4 text-purple-500" />
+          <h3 className="font-semibold text-slate-800 text-sm">Google Forms Integration — Apps Script</h3>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="bg-purple-50 border border-purple-100 rounded-lg p-4 text-sm text-purple-800 space-y-1">
+            <p className="font-semibold">Setup Steps for Each Training Batch</p>
+            <ol className="list-decimal list-inside space-y-1 text-purple-700 text-xs">
+              <li>Create a Google Form with the 10 standard questions (ratings 1–5 + 3 free-text fields)</li>
+              <li>Link the form to a Google Sheet (Form → Responses → Spreadsheet icon)</li>
+              <li>In the sheet: <strong>Extensions → Apps Script</strong> — paste the script below</li>
+              <li>Update <code className="font-mono bg-purple-100 px-1 rounded">BATCH_ID</code> and <code className="font-mono bg-purple-100 px-1 rounded">WEBHOOK_URL</code></li>
+              <li>Save → Triggers (⏱) → Add Trigger → <strong>onFormSubmit</strong> → From form → On form submit</li>
+              <li>Register the form URL in Admin → Batch Detail → &quot;Set Google Form&quot;</li>
+              <li>Click &quot;Send Google Form Links&quot; to email participants the form URL</li>
+            </ol>
+          </div>
+          <div className="relative">
+            <pre className="bg-slate-900 text-emerald-300 text-xs font-mono rounded-lg p-4 overflow-x-auto leading-relaxed whitespace-pre">
+              {APPS_SCRIPT}
+            </pre>
+            <button
+              onClick={() => { navigator.clipboard.writeText(APPS_SCRIPT); toast.success("Script copied to clipboard"); }}
+              className="absolute top-2 right-2 inline-flex items-center gap-1.5 px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded transition-colors"
+            >
+              <Copy className="w-3 h-3" /> Copy
+            </button>
+          </div>
+          <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700">
+            <strong>ngrok for local testing:</strong> Apps Script cannot reach <code className="font-mono">localhost</code>. Run <code className="font-mono bg-amber-100 px-1 rounded">ngrok http 8002</code> and use the HTTPS URL as <code className="font-mono">WEBHOOK_URL</code>.
+          </div>
         </div>
       </div>
 

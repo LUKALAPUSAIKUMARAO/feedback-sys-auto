@@ -67,6 +67,15 @@ export const batchesApi = {
   },
   sendFeedbackLinks: (id: string) =>
     api.post(`/admin/batches/${id}/send-feedback-links`).then((r) => r.data),
+  registerGoogleForm: (id: string, data: { form_url: string; sheet_url?: string }) =>
+    api.post(`/admin/batches/${id}/google-form`, data).then((r) => r.data),
+  getGoogleForm: (id: string) =>
+    api.get(`/admin/batches/${id}/google-form`).then((r) => r.data),
+};
+
+export const webhookApi = {
+  status: (batchId: string) =>
+    api.get(`/webhook/status/${batchId}`).then((r) => r.data),
 };
 
 export const participantsApi = {

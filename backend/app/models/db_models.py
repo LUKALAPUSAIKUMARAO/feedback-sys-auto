@@ -84,6 +84,7 @@ class Trainer(Base):
     organization = relationship("Organization", back_populates="trainers")
     training_batches = relationship("TrainingBatch", back_populates="trainer", lazy="dynamic")
     metrics_snapshots = relationship("TrainerMetricsSnapshot", back_populates="trainer", lazy="dynamic")
+    google_forms = relationship("GoogleForm", back_populates="trainer", lazy="dynamic")
 
 
 class TrainingProgram(Base):
@@ -127,6 +128,7 @@ class TrainingBatch(Base):
     status = Column(String(50), nullable=False, default="scheduled")
     survey_deadline = Column(DateTime)
     feedback_threshold = Column(Integer, nullable=False, default=5)
+    google_form_url = Column(Text)  # Google Form link for this batch
     created_by = Column(String(36), ForeignKey("users.id"))
     created_at = Column(DateTime, default=_now)
     updated_at = Column(DateTime, default=_now, onupdate=_now)
@@ -137,6 +139,7 @@ class TrainingBatch(Base):
     rosters = relationship("BatchRoster", back_populates="batch", lazy="dynamic")
     feedback_submissions = relationship("FeedbackSubmission", back_populates="batch", lazy="dynamic")
     pipeline_runs = relationship("PipelineRunLog", back_populates="batch", lazy="dynamic")
+    google_forms = relationship("GoogleForm", back_populates="batch", lazy="dynamic")
 
 
 class Participant(Base):
@@ -181,16 +184,18 @@ class BatchRoster(Base):
 
 
 class FeedbackSubmission(Base):
+    """
+    Stores one feedback submission per participant per batch.
+    Source can be Google Forms (google_response_id set) or custom form (token_jti set).
+    """
     __tablename__ = "feedback_submissions"
-    __table_args__ = (
-        UniqueConstraint("participant_id", "batch_id", name="uq_feedback_participant_batch"),
-    )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     batch_id = Column(String(36), ForeignKey("training_batches.id", ondelete="CASCADE"), nullable=False)
-    participant_id = Column(String(36), ForeignKey("participants.id", ondelete="CASCADE"), nullable=False)
-    roster_id = Column(String(36), ForeignKey("batch_rosters.id"))
+    participant_id = Column(String(36), ForeignKey("participants.id", ondelete="SET NULL"), nullable=True)
+    roster_id = Column(String(36), ForeignKey("batch_rosters.id"), nullable=True)
 
+    # Numeric ratings (1-5, from Google Form or custom form)
     rating_technical_knowledge = Column(SmallInteger)
     rating_communication = Column(SmallInteger)
     rating_session_engagement = Column(SmallInteger)
@@ -198,11 +203,32 @@ class FeedbackSubmission(Base):
     rating_practical_learning = Column(SmallInteger)
     rating_content_quality = Column(SmallInteger)
 
+    # Free-text answers
     free_text_positive = Column(Text)
     free_text_improve = Column(Text)
     free_text_overall = Column(Text)
-    is_anonymous = Column(Boolean, nullable=False, default=False)
+    is_anonymous = Column(Boolean, nullable=False, default=True)
 
+    # Respondent info (from Google Forms, may differ from enrolled participant)
+    respondent_email = Column(String(320))
+    respondent_name = Column(String(255))
+    is_duplicate = Column(Boolean, nullable=False, default=False)  # flagged if same email submits twice
+
+    # Source tracking
+    source = Column(String(50), default="google_forms")  # 'google_forms' or 'custom_form'
+    google_response_id = Column(String(255), unique=True)  # dedup key for Google Forms
+    token_jti = Column(String(255))  # kept for custom form backward compatibility
+
+    # AI analysis (from per-submission Groq analysis)
+    processing_status = Column(String(50), nullable=False, default="pending")  # pending/processing/completed/failed
+    groq_retry_count = Column(SmallInteger, nullable=False, default=0)
+    groq_trainer_rating = Column(Numeric(4, 2))
+    groq_strengths = Column(JSON, default=list)
+    groq_improvements = Column(JSON, default=list)
+    groq_summary = Column(Text)
+    groq_recommendation = Column(Text)
+
+    # Legacy AI fields (from batch-level pipeline)
     sentiment_score = Column(Numeric(5, 4))
     sentiment_label = Column(String(20))
     extracted_themes = Column(JSON, default=list)
@@ -212,7 +238,6 @@ class FeedbackSubmission(Base):
     submitted_at = Column(DateTime, default=_now)
     ip_address = Column(String(45))
     user_agent = Column(Text)
-    token_jti = Column(String(255), nullable=False)
 
     batch = relationship("TrainingBatch", back_populates="feedback_submissions")
     participant = relationship("Participant", back_populates="feedback_submissions")
@@ -228,7 +253,7 @@ class FeedbackEmbedding(Base):
     trainer_id = Column(String(36), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(SmallInteger, nullable=False, default=0)
-    embedding = Column(Text)  # JSON-encoded float list (not used; RAG falls back to text search)
+    embedding = Column(Text)
     metadata_ = Column("metadata", JSON, default=dict)
     created_at = Column(DateTime, default=_now)
 
@@ -298,3 +323,61 @@ class SurveyToken(Base):
     expires_at = Column(DateTime, nullable=False)
     used_at = Column(DateTime)
     is_used = Column(Boolean, nullable=False, default=False)
+
+
+# ─── Google Forms Integration ─────────────────────────────────────────────────
+
+class GoogleForm(Base):
+    """
+    Registry of Google Forms linked to training batches.
+    One form per batch; all post to the same webhook endpoint.
+    """
+    __tablename__ = "google_forms"
+    __table_args__ = (
+        UniqueConstraint("batch_id", name="uq_google_form_batch"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    batch_id = Column(String(36), ForeignKey("training_batches.id", ondelete="CASCADE"), nullable=False)
+    trainer_id = Column(String(36), ForeignKey("trainers.id", ondelete="CASCADE"), nullable=False)
+    training_program_id = Column(String(36), ForeignKey("training_programs.id", ondelete="SET NULL"), nullable=True)
+    form_url = Column(Text, nullable=False)        # Google Form URL (public sharing link)
+    form_id = Column(String(255))                  # Google Form ID (extracted from URL)
+    sheet_id = Column(String(255))                 # Google Sheet ID linked to the form
+    sheet_url = Column(Text)                       # Google Sheet URL for manual access
+    status = Column(String(50), nullable=False, default="active")  # active / closed / archived
+    webhook_secret = Column(String(255))           # optional HMAC secret for Apps Script auth
+    last_synced_at = Column(DateTime)              # last time responses were fetched
+    last_synced_row = Column(Integer, default=1)   # checkpoint: last processed sheet row
+    total_responses = Column(Integer, default=0)
+    created_at = Column(DateTime, default=_now)
+    updated_at = Column(DateTime, default=_now, onupdate=_now)
+
+    batch = relationship("TrainingBatch", back_populates="google_forms")
+    trainer = relationship("Trainer", back_populates="google_forms")
+    sync_logs = relationship("GoogleFormSyncLog", back_populates="google_form", lazy="dynamic")
+
+
+class GoogleFormSyncLog(Base):
+    """
+    Audit log for every Google Form response processing attempt.
+    Enables idempotency, retry tracking, and monitoring.
+    """
+    __tablename__ = "google_form_sync_log"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    google_form_id = Column(String(36), ForeignKey("google_forms.id", ondelete="CASCADE"), nullable=True)
+    batch_id = Column(String(36), ForeignKey("training_batches.id", ondelete="CASCADE"), nullable=False)
+    google_response_id = Column(String(255), nullable=False)  # unique per Google Form response
+    submission_id = Column(String(36), ForeignKey("feedback_submissions.id"), nullable=True)
+    status = Column(String(50), nullable=False, default="received")
+    # received → processing → completed | failed | duplicate | skipped
+    received_at = Column(DateTime, default=_now)
+    processed_at = Column(DateTime)
+    retry_count = Column(SmallInteger, nullable=False, default=0)
+    error_message = Column(Text)
+    raw_payload = Column(JSON, default=dict)
+    respondent_email = Column(String(320))
+
+    google_form = relationship("GoogleForm", back_populates="sync_logs")

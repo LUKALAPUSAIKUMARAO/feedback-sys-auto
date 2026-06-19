@@ -17,6 +17,7 @@ const schema = z.object({
   max_capacity: z.coerce.number().min(1).max(1000).default(30),
   venue: z.string().optional(),
   mode: z.enum(["online", "offline", "hybrid"]).default("online"),
+  google_form_url: z.string().url().optional().or(z.literal("")),
 });
 type FormData = z.infer<typeof schema>;
 
@@ -122,6 +123,17 @@ export default function BatchCreateModal({ onClose, onCreated }: { onClose: () =
               <label className="block text-sm font-medium text-slate-700 mb-1">Venue</label>
               <input {...register("venue")} placeholder="e.g., Room 4B / Zoom" className="w-full border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Google Form URL (Optional)</label>
+            <input
+              {...register("google_form_url")}
+              placeholder="https://docs.google.com/forms/d/..."
+              className="w-full border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+            />
+            {errors.google_form_url && <p className="text-red-500 text-xs mt-1">Enter a valid Google Form URL</p>}
+            <p className="text-xs text-slate-400 mt-1">Paste the Google Form share link — participants will receive this for feedback</p>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">

@@ -8,7 +8,7 @@ from app.core.config import settings
 from app.core.database import create_all_tables
 from app.core.redis_client import get_redis, close_redis
 from app.core.seed import seed_database
-from app.api.v1 import auth, admin, feedback, analytics, admin_participants
+from app.api.v1 import auth, admin, feedback, analytics, admin_participants, webhook
 from app.api.v1 import settings as settings_router
 
 log = structlog.get_logger()
@@ -52,6 +52,7 @@ app.include_router(feedback.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(admin_participants.router, prefix="/api/v1")
 app.include_router(settings_router.router, prefix="/api/v1")
+app.include_router(webhook.router, prefix="/api/v1")
 
 
 @app.get("/health")

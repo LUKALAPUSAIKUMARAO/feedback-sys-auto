@@ -147,6 +147,7 @@ class TrainingBatchCreate(BaseModel):
     venue: Optional[str] = None
     mode: TrainingMode = TrainingMode.online
     feedback_threshold: int = Field(default=5, ge=1)
+    google_form_url: Optional[str] = None
 
     @model_validator(mode="after")
     def validate_dates(self):
@@ -169,6 +170,7 @@ class TrainingBatchOut(BaseModel):
     status: str
     survey_deadline: Optional[datetime]
     feedback_threshold: int
+    google_form_url: Optional[str] = None
     created_at: datetime
     model_config = {"from_attributes": True}
 

@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.security import create_feedback_token
 from app.models.db_models import (
     Trainer, TrainingProgram, TrainingBatch, Participant,
-    BatchRoster, User, SurveyToken
+    BatchRoster, User, SurveyToken, GoogleForm, GoogleFormSyncLog
 )
 from app.schemas.pydantic_schemas import (
     TrainerCreate, TrainerUpdate, TrainerOut,
@@ -471,26 +471,149 @@ async def send_feedback_links(
         .where(BatchRoster.batch_id == batch_id, BatchRoster.feedback_link_sent == False)
     )).scalars().all()
 
+    # Prefer Google Form URL; fall back to custom JWT token URL
+    gform = (await db.execute(
+        select(GoogleForm).where(GoogleForm.batch_id == batch_id)
+    )).scalar_one_or_none()
+    google_form_url = batch.google_form_url or (gform.form_url if gform else None)
+
     sent_count = 0
+    failed_count = 0
     from app.core.email import send_feedback_email
     for roster in rosters:
         try:
-            feedback_url = f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
+            if google_form_url:
+                feedback_url = google_form_url
+            elif roster.feedback_token:
+                feedback_url = f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
+            else:
+                continue  # no link available for this participant
+
             await send_feedback_email(
                 to_email=roster.participant.email,
                 to_name=roster.participant.full_name,
                 feedback_url=feedback_url,
-                batch_title=batch.title or batch.program.title,
-                trainer_name=batch.trainer.full_name,
+                batch_title=batch.title or (batch.program.title if batch.program else batch.batch_code),
+                trainer_name=batch.trainer.full_name if batch.trainer else "Trainer",
+                use_google_form=bool(google_form_url),
             )
             roster.feedback_link_sent = True
             roster.feedback_link_sent_at = datetime.now(timezone.utc)
             sent_count += 1
-        except Exception:
+        except Exception as e:
+            failed_count += 1
             pass
 
     await db.execute(
         update(TrainingBatch).where(TrainingBatch.id == batch_id).values(status="survey_open")
     )
     await db.commit()
-    return {"sent": sent_count, "total_enrolled": batch.actual_enrolled}
+    return {"sent": sent_count, "failed": failed_count, "total_enrolled": batch.actual_enrolled}
+
+
+# ─── Google Forms Management ──────────────────────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBase
+
+class GoogleFormRegister(_PydanticBase):
+    form_url: str
+    sheet_url: Optional[str] = None
+    sheet_id: Optional[str] = None
+
+
+@router.post("/batches/{batch_id}/google-form", status_code=201)
+async def register_google_form(
+    batch_id: str,
+    payload: GoogleFormRegister,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Register or update the Google Form linked to a training batch."""
+    batch = (await db.execute(
+        select(TrainingBatch)
+        .options(selectinload(TrainingBatch.trainer))
+        .where(TrainingBatch.id == batch_id, TrainingBatch.organization_id == current_user.organization_id)
+    )).scalar_one_or_none()
+    if not batch:
+        raise HTTPException(404, "Batch not found")
+
+    # Extract form_id from URL  (…/d/FORM_ID/… or …/forms/d/e/FORM_ID/…)
+    import re
+    form_id_match = re.search(r"/d/e?/?([\w-]+)", payload.form_url)
+    form_id = form_id_match.group(1) if form_id_match else None
+
+    # Upsert
+    existing = (await db.execute(
+        select(GoogleForm).where(GoogleForm.batch_id == batch_id)
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.form_url = payload.form_url
+        existing.form_id = form_id
+        existing.sheet_url = payload.sheet_url
+        existing.sheet_id = payload.sheet_id
+        existing.status = "active"
+        gform = existing
+    else:
+        gform = GoogleForm(
+            organization_id=str(current_user.organization_id),
+            batch_id=batch_id,
+            trainer_id=str(batch.trainer_id),
+            training_program_id=str(batch.program_id),
+            form_url=payload.form_url,
+            form_id=form_id,
+            sheet_url=payload.sheet_url,
+            sheet_id=payload.sheet_id,
+            status="active",
+        )
+        db.add(gform)
+
+    # Also set on the batch for easy access
+    batch.google_form_url = payload.form_url
+    await db.commit()
+    await db.refresh(gform)
+
+    return {
+        "id": str(gform.id),
+        "batch_id": batch_id,
+        "form_url": gform.form_url,
+        "form_id": gform.form_id,
+        "sheet_url": gform.sheet_url,
+        "status": gform.status,
+        "webhook_url": f"{settings.BACKEND_URL}/api/v1/webhook/feedback",
+        "apps_script_batch_id": batch_id,
+    }
+
+
+@router.get("/batches/{batch_id}/google-form")
+async def get_google_form(
+    batch_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_management),
+):
+    gform = (await db.execute(
+        select(GoogleForm).where(GoogleForm.batch_id == batch_id)
+    )).scalar_one_or_none()
+    if not gform:
+        return {"registered": False, "batch_id": batch_id}
+
+    sync_count = (await db.execute(
+        select(func.count(GoogleFormSyncLog.id)).where(
+            GoogleFormSyncLog.google_form_id == str(gform.id),
+            GoogleFormSyncLog.status == "completed",
+        )
+    )).scalar() or 0
+
+    return {
+        "registered": True,
+        "id": str(gform.id),
+        "form_url": gform.form_url,
+        "form_id": gform.form_id,
+        "sheet_url": gform.sheet_url,
+        "status": gform.status,
+        "total_responses": gform.total_responses,
+        "completed_analyses": sync_count,
+        "last_synced_at": gform.last_synced_at.isoformat() if gform.last_synced_at else None,
+        "webhook_url": f"{settings.BACKEND_URL}/api/v1/webhook/feedback",
+        "apps_script_batch_id": batch_id,
+    }

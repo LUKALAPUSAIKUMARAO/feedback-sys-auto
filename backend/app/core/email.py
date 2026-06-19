@@ -8,7 +8,7 @@ import structlog
 log = structlog.get_logger()
 
 
-def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name: str, to_email: str, is_reminder: bool) -> str:
+def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name: str, to_email: str, is_reminder: bool, use_google_form: bool = False) -> str:
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -37,13 +37,13 @@ def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name:
     <div class="body">
       <p>Hi {to_name},</p>
       <p>{"We noticed you haven't shared your feedback yet. There's still time!" if is_reminder else f"Thank you for attending <strong>{batch_title}</strong> with {trainer_name}."}</p>
-      <p>Your feedback directly improves training quality for your entire organization. It takes less than 3 minutes and is completely optional to complete anonymously.</p>
+      <p>Your feedback directly improves training quality for your entire organization. It takes less than 3 minutes to complete{"via Google Forms" if use_google_form else ""}.</p>
       <div class="meta">
         <p><strong>Training:</strong> {batch_title}</p>
         <p><strong>Trainer:</strong> {trainer_name}</p>
       </div>
-      <a href="{feedback_url}" class="cta">Share My Feedback →</a>
-      <p>This link is unique to you and expires in 72 hours. Please do not share it with others.</p>
+      <a href="{feedback_url}" class="cta">{"Open Google Form →" if use_google_form else "Share My Feedback →"}</a>
+      {"<p>Click the button above to open the Google Form and submit your feedback. It only takes 2-3 minutes.</p>" if use_google_form else "<p>This link is unique to you and expires in 72 hours. Please do not share it with others.</p>"}
     </div>
     <div class="footer">
       <p>Bilvantis Agentic AI Training Platform · This email was sent to {to_email}</p>
@@ -60,13 +60,14 @@ async def send_feedback_email(
     batch_title: str,
     trainer_name: str,
     is_reminder: bool = False,
+    use_google_form: bool = False,
 ) -> bool:
     subject = (
         f"Reminder: Share Your Feedback — {batch_title}"
         if is_reminder
         else f"Your Feedback Matters — {batch_title}"
     )
-    html_content = _build_html(to_name, feedback_url, batch_title, trainer_name, to_email, is_reminder)
+    html_content = _build_html(to_name, feedback_url, batch_title, trainer_name, to_email, is_reminder, use_google_form)
 
     # Try SMTP first (real delivery)
     if settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL:
