@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 import uuid, json
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.core.redis_client import cache_get, cache_set
 from app.models.db_models import (
     Trainer, TrainingBatch, FeedbackSubmission, TrainerMetricsSnapshot,
@@ -726,8 +727,25 @@ async def system_health_status(
             redis_status = "unavailable"
             redis_type = "none"
 
-    # GROQ check
-    groq_configured = bool(settings.GROQ_API_KEY and len(settings.GROQ_API_KEY) > 10)
+    # GROQ live ping
+    import time as _time
+    groq_status = "not configured"
+    groq_latency_ms = None
+    groq_model = "llama-3.3-70b-versatile"
+    if settings.GROQ_API_KEY and len(settings.GROQ_API_KEY) > 10:
+        try:
+            from groq import AsyncGroq
+            _t0 = _time.monotonic()
+            _gc = AsyncGroq(api_key=settings.GROQ_API_KEY)
+            _resp = await _gc.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": "ping"}],
+                max_tokens=1,
+            )
+            groq_latency_ms = round((_time.monotonic() - _t0) * 1000)
+            groq_status = f"ok ({groq_latency_ms} ms)"
+        except Exception as _ge:
+            groq_status = f"error: {str(_ge)[:60]}"
 
     # Email check
     smtp_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
@@ -738,22 +756,37 @@ async def system_health_status(
     total_trainers = (await db.execute(select(func.count(Trainer.id)))).scalar() or 0
     total_batches = (await db.execute(select(func.count(TrainingBatch.id)))).scalar() or 0
     total_responses = (await db.execute(select(func.count(FeedbackSubmission.id)))).scalar() or 0
+    total_participants = (await db.execute(select(func.count(Participant.id)))).scalar() or 0
+    total_programs = (await db.execute(select(func.count(TrainingProgram.id)))).scalar() or 0
 
     latest_run = (await db.execute(
         select(PipelineRunLog).order_by(desc(PipelineRunLog.created_at)).limit(1)
     )).scalars().first()
 
+    all_ok = db_status == "ok" and groq_status.startswith("ok")
+    overall = "healthy" if all_ok else ("degraded" if db_status == "ok" else "critical")
+
     return {
-        "overall": "healthy" if db_status == "ok" else "degraded",
+        "overall": overall,
         "services": {
-            "database": {"status": db_status, "type": "SQLite"},
+            "database": {"status": db_status, "type": "SQLite + aiosqlite"},
             "cache": {"status": redis_status, "type": redis_type},
-            "ai_pipeline": {"status": "ok" if groq_configured else "not configured", "model": "llama-3.3-70b-versatile"},
-            "email": {"status": "ok" if (smtp_configured or sendgrid_configured) else "warning", "provider": email_provider},
+            "groq_api": {
+                "status": groq_status,
+                "model": groq_model,
+                "latency_ms": groq_latency_ms,
+                "key_configured": bool(settings.GROQ_API_KEY),
+            },
+            "email": {
+                "status": "ok" if (smtp_configured or sendgrid_configured) else "warning: no provider",
+                "provider": email_provider,
+            },
         },
         "stats": {
             "trainers": total_trainers,
             "batches": total_batches,
+            "programs": total_programs,
+            "participants": total_participants,
             "feedback_responses": total_responses,
         },
         "last_pipeline_run": {

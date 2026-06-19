@@ -14,6 +14,7 @@ const NAV = [
   { href: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/batches", label: "Training Batches", icon: CalendarDays },
   { href: "/admin/trainers", label: "Trainers", icon: UserCircle2 },
+  { href: "/admin/programs", label: "Programs", icon: BookOpen },
   { href: "/admin/campaigns", label: "Campaigns", icon: Megaphone },
   { href: "/admin/reports", label: "Reports", icon: BarChart3 },
   { href: "/admin/ai-chat", label: "AI Analytics Chat", icon: MessageSquareCode },

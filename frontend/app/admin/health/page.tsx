@@ -48,6 +48,7 @@ export default function HealthPage() {
   const serviceIcons: Record<string, any> = {
     database: Database,
     cache: Activity,
+    groq_api: Zap,
     ai_pipeline: Zap,
     email: Mail,
   };
@@ -55,6 +56,7 @@ export default function HealthPage() {
   const serviceLabels: Record<string, string> = {
     database: "Database",
     cache: "Cache / Redis",
+    groq_api: "Groq AI API",
     ai_pipeline: "AI Pipeline (GROQ)",
     email: "Email Service",
   };
@@ -125,7 +127,10 @@ export default function HealthPage() {
                       </div>
                       <div>
                         <p className="font-medium text-slate-900 text-sm">{serviceLabels[key] || key}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">{svc.type || svc.model || svc.provider || ""}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {svc.type || svc.model || svc.provider || ""}
+                          {svc.latency_ms ? ` · ${svc.latency_ms} ms` : ""}
+                        </p>
                       </div>
                     </div>
                     <StatusIcon status={svc.status?.startsWith("ok") ? "ok" : svc.status === "warning" ? "warning" : svc.status === "not configured" ? "warning" : "ok"} />
@@ -139,11 +144,13 @@ export default function HealthPage() {
           {/* Stats */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-card">
             <h3 className="text-sm font-semibold text-slate-800 mb-4">Platform Statistics</h3>
-            <div className="grid grid-cols-3 gap-6">
+            <div className="grid grid-cols-5 gap-4">
               {[
-                { label: "Total Trainers", value: data.stats?.trainers ?? 0 },
-                { label: "Training Batches", value: data.stats?.batches ?? 0 },
-                { label: "Feedback Responses", value: data.stats?.feedback_responses ?? 0 },
+                { label: "Trainers", value: data.stats?.trainers ?? 0 },
+                { label: "Programs", value: data.stats?.programs ?? 0 },
+                { label: "Batches", value: data.stats?.batches ?? 0 },
+                { label: "Participants", value: data.stats?.participants ?? 0 },
+                { label: "Responses", value: data.stats?.feedback_responses ?? 0 },
               ].map((s) => (
                 <div key={s.label} className="text-center">
                   <p className="text-3xl font-bold text-slate-900 tabular-nums">{s.value}</p>
