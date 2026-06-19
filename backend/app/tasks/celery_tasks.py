@@ -102,21 +102,31 @@ def send_feedback_campaign(batch_id: str):
             )).scalars().all()
 
             sent = 0
+            failed = 0
             for roster in rosters:
                 try:
+                    if not roster.feedback_token:
+                        logger.warning(f"No feedback token for roster {roster.id}, skipping")
+                        failed += 1
+                        continue
                     feedback_url = f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
                     batch_title = batch.title or (batch.program.title if batch.program else "Training Session")
-                    await send_feedback_email(
+                    ok = await send_feedback_email(
                         to_email=roster.participant.email,
                         to_name=roster.participant.full_name,
                         feedback_url=feedback_url,
                         batch_title=batch_title,
                         trainer_name=batch.trainer.full_name if batch.trainer else "Trainer",
                     )
-                    roster.feedback_link_sent = True
-                    roster.feedback_link_sent_at = datetime.now(timezone.utc)
-                    sent += 1
+                    if ok:
+                        roster.feedback_link_sent = True
+                        roster.feedback_link_sent_at = datetime.now(timezone.utc)
+                        sent += 1
+                    else:
+                        failed += 1
+                        logger.warning(f"Email delivery failed for {roster.participant.email}")
                 except Exception as e:
+                    failed += 1
                     logger.warning(f"Failed to send email to {roster.participant.email}: {e}")
 
             await db.execute(
@@ -125,8 +135,8 @@ def send_feedback_campaign(batch_id: str):
                 .values(status="survey_open")
             )
             await db.commit()
-            logger.info(f"send_feedback_campaign: sent {sent} links for batch {batch_id}")
-            return {"sent": sent}
+            logger.info(f"send_feedback_campaign: sent={sent} failed={failed} batch={batch_id}")
+            return {"sent": sent, "failed": failed}
 
     return run_async(_send())
 
@@ -172,9 +182,11 @@ def send_survey_reminders():
                 for roster in pending_rosters:
                     if str(roster.participant_id) not in submitted_participant_ids:
                         try:
+                            if not roster.feedback_token:
+                                continue
                             feedback_url = f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
                             batch_title = batch.title or (batch.program.title if batch.program else "Training Session")
-                            await send_feedback_email(
+                            ok = await send_feedback_email(
                                 to_email=roster.participant.email,
                                 to_name=roster.participant.full_name,
                                 feedback_url=feedback_url,
@@ -182,9 +194,12 @@ def send_survey_reminders():
                                 trainer_name=batch.trainer.full_name if batch.trainer else "",
                                 is_reminder=True,
                             )
-                            reminded += 1
-                        except Exception:
-                            pass
+                            if ok:
+                                reminded += 1
+                            else:
+                                logger.warning(f"Reminder failed for {roster.participant.email}")
+                        except Exception as e:
+                            logger.warning(f"Reminder exception for {roster.participant.email}: {e}")
 
             logger.info(f"send_survey_reminders: sent {reminded} reminders")
             return {"reminded": reminded}

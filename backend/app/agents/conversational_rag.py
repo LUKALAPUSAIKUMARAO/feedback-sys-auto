@@ -1,4 +1,5 @@
 """Agent 7: Conversational Analytics Agent (RAG)"""
+import json
 from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text

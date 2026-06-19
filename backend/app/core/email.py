@@ -8,6 +8,10 @@ import structlog
 log = structlog.get_logger()
 
 
+def _is_smtp_configured() -> bool:
+    return bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
+
+
 def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name: str, to_email: str, is_reminder: bool, use_google_form: bool = False) -> str:
     return f"""<!DOCTYPE html>
 <html>
@@ -62,6 +66,10 @@ async def send_feedback_email(
     is_reminder: bool = False,
     use_google_form: bool = False,
 ) -> bool:
+    if not to_email or not to_email.strip():
+        log.error("email.missing_recipient", feedback_url=feedback_url)
+        return False
+
     subject = (
         f"Reminder: Share Your Feedback — {batch_title}"
         if is_reminder
@@ -69,18 +77,60 @@ async def send_feedback_email(
     )
     html_content = _build_html(to_name, feedback_url, batch_title, trainer_name, to_email, is_reminder, use_google_form)
 
-    # Try SMTP first (real delivery)
-    if settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL:
+    if _is_smtp_configured():
         return await _send_smtp(to_email, subject, html_content)
 
-    # Fallback: SendGrid
     if settings.SENDGRID_API_KEY:
         return await _send_sendgrid(to_email, subject, html_content)
 
-    # Fallback: log only (dev mode)
+    # Dev fallback — no provider configured, just log
     log.warning("email.no_provider_configured", to=to_email, subject=subject)
     log.info("email.simulated_send", to=to_email, feedback_url=feedback_url)
-    return True
+    return False  # False so callers know real delivery didn't happen
+
+
+async def send_test_smtp(
+    to_email: str,
+    host: str,
+    port: int,
+    user: str,
+    password: str,
+    from_email: str,
+    from_name: str = "Bilvantis TIP",
+) -> tuple[bool, str]:
+    """Test arbitrary SMTP credentials. Returns (success, error_message)."""
+    def _blocking():
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = "Bilvantis TIP — Email Configuration Test"
+        msg["From"] = f"{from_name} <{from_email}>"
+        msg["To"] = to_email
+        html = f"""<div style="font-family:sans-serif;padding:24px">
+            <h2 style="color:#2563eb">Email configuration working ✓</h2>
+            <p>SMTP host: <strong>{host}:{port}</strong></p>
+            <p>Sending from: <strong>{from_email}</strong></p>
+        </div>"""
+        msg.attach(MIMEText(html, "html"))
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(user, password)
+            server.sendmail(from_email, to_email, msg.as_string())
+
+    try:
+        await asyncio.to_thread(_blocking)
+        log.info("email.test_smtp_ok", to=to_email, host=host)
+        return True, ""
+    except smtplib.SMTPAuthenticationError:
+        msg = "Authentication failed — check username and app password"
+        log.error("email.test_smtp_auth_error", to=to_email, error=msg)
+        return False, msg
+    except smtplib.SMTPConnectError as e:
+        msg = f"Cannot connect to {host}:{port} — {e}"
+        log.error("email.test_smtp_connect_error", error=msg)
+        return False, msg
+    except Exception as e:
+        log.error("email.test_smtp_failed", error=str(e))
+        return False, str(e)
 
 
 async def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
