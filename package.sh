@@ -19,7 +19,12 @@ OUTPUT="${1:-${APP_DIR}/${APP_NAME}-${TIMESTAMP}.zip}"
 
 command -v zip &>/dev/null || {
   info "Installing zip..."
-  apt-get install -y -qq zip 2>/dev/null || yum install -y zip 2>/dev/null || die "Cannot install zip"
+  apt-get install -y -qq zip 2>/dev/null || \
+  dnf install -y zip 2>/dev/null || \
+  yum install -y zip 2>/dev/null || \
+  zypper install -y zip 2>/dev/null || \
+  apk add --no-cache zip 2>/dev/null || \
+  die "Cannot install zip — please install it manually"
 }
 
 info "Source  : $APP_DIR"
@@ -63,14 +68,17 @@ echo -e "  File  : $OUTPUT"
 echo -e "  Size  : $ZIP_SIZE"
 echo -e "  Files : $FILE_COUNT"
 echo ""
-echo -e "${BOLD}Transfer and deploy to new Ubuntu 22.04 VM:${NC}"
+echo -e "${BOLD}Transfer and deploy to any Linux VM:${NC}"
 echo ""
 echo -e "  # On this machine:"
-echo -e "  scp $(basename "$OUTPUT") ubuntu@<NEW_VM_IP>:/home/ubuntu/"
+echo -e "  scp $(basename "$OUTPUT") <user>@<NEW_VM_IP>:/home/<user>/"
 echo ""
-echo -e "  # On the new VM:"
-echo -e "  ssh ubuntu@<NEW_VM_IP>"
-echo -e "  sudo apt-get install -y unzip"
+echo -e "  # On the new VM (any distro):"
+echo -e "  ssh <user>@<NEW_VM_IP>"
+echo -e "  # Install unzip if needed:"
+echo -e "  #   Ubuntu/Debian: sudo apt-get install -y unzip"
+echo -e "  #   RHEL/CentOS/Fedora: sudo dnf install -y unzip"
+echo -e "  #   Alpine: sudo apk add unzip"
 echo -e "  mkdir -p /opt/bilvantis-tip"
 echo -e "  unzip $(basename "$OUTPUT") -d /opt/bilvantis-tip"
 echo -e "  cd /opt/bilvantis-tip"
