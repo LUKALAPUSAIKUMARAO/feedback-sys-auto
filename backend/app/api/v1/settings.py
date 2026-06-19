@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from app.api.v1.auth import require_admin
 from app.models.db_models import User
 from app.core.email import send_test_smtp
-from app.core.config import settings
+from app.core.config import Settings
 import structlog
 
 log = structlog.get_logger()
@@ -28,12 +28,13 @@ async def test_email(
     current_user: User = Depends(require_admin),
 ):
     """Send a test email. Uses provided credentials, or falls back to .env SMTP values."""
-    host = payload.host or settings.SMTP_HOST
-    port = payload.port or settings.SMTP_PORT
-    user = payload.user or settings.SMTP_USER
-    password = payload.password or settings.SMTP_PASSWORD
-    from_email = payload.from_email or settings.SMTP_FROM_EMAIL
-    from_name = payload.from_name or settings.SMTP_FROM_NAME
+    live = Settings()
+    host = payload.host or live.SMTP_HOST
+    port = payload.port or live.SMTP_PORT
+    user = payload.user or live.SMTP_USER
+    password = payload.password or live.SMTP_PASSWORD
+    from_email = payload.from_email or live.SMTP_FROM_EMAIL
+    from_name = payload.from_name or live.SMTP_FROM_NAME
 
     if not user or not password or not from_email:
         raise HTTPException(

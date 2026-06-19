@@ -1,5 +1,9 @@
 from pydantic_settings import BaseSettings
 from typing import Optional
+from pathlib import Path
+
+# Absolute path to backend/.env — works regardless of the process's CWD
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -31,7 +35,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     class Config:
-        env_file = ".env"
+        env_file = str(_ENV_FILE)
         extra = "ignore"
 
 

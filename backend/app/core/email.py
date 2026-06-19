@@ -2,14 +2,20 @@ import asyncio
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from app.core.config import settings
+from app.core.config import Settings
 import structlog
 
 log = structlog.get_logger()
 
 
+def _get_settings():
+    """Always return a fresh Settings so .env changes don't require a restart."""
+    return Settings()
+
+
 def _is_smtp_configured() -> bool:
-    return bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
+    s = _get_settings()
+    return bool(s.SMTP_USER and s.SMTP_PASSWORD and s.SMTP_FROM_EMAIL)
 
 
 def _build_html(to_name: str, feedback_url: str, batch_title: str, trainer_name: str, to_email: str, is_reminder: bool, use_google_form: bool = False) -> str:
@@ -80,8 +86,9 @@ async def send_feedback_email(
     if _is_smtp_configured():
         return await _send_smtp(to_email, subject, html_content)
 
-    if settings.SENDGRID_API_KEY:
-        return await _send_sendgrid(to_email, subject, html_content)
+    _s = _get_settings()
+    if _s.SENDGRID_API_KEY:
+        return await _send_sendgrid(to_email, subject, html_content, _s.SENDGRID_API_KEY, _s.SENDGRID_FROM_EMAIL)
 
     # Dev fallback — no provider configured, just log
     log.warning("email.no_provider_configured", to=to_email, subject=subject)
@@ -134,17 +141,19 @@ async def send_test_smtp(
 
 
 async def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
+    s = _get_settings()
+
     def _blocking_send():
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
-        msg["From"] = f"{settings.SMTP_FROM_NAME} <{settings.SMTP_FROM_EMAIL}>"
+        msg["From"] = f"{s.SMTP_FROM_NAME} <{s.SMTP_FROM_EMAIL}>"
         msg["To"] = to_email
         msg.attach(MIMEText(html_content, "html"))
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+        with smtplib.SMTP(s.SMTP_HOST, s.SMTP_PORT, timeout=15) as server:
             server.ehlo()
             server.starttls()
-            server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-            server.sendmail(settings.SMTP_FROM_EMAIL, to_email, msg.as_string())
+            server.login(s.SMTP_USER, s.SMTP_PASSWORD)
+            server.sendmail(s.SMTP_FROM_EMAIL, to_email, msg.as_string())
 
     try:
         await asyncio.to_thread(_blocking_send)
@@ -155,17 +164,20 @@ async def _send_smtp(to_email: str, subject: str, html_content: str) -> bool:
         return False
 
 
-async def _send_sendgrid(to_email: str, subject: str, html_content: str) -> bool:
+async def _send_sendgrid(to_email: str, subject: str, html_content: str, api_key: str = "", from_email: str = "") -> bool:
+    s = _get_settings()
+    _api_key = api_key or s.SENDGRID_API_KEY
+    _from_email = from_email or s.SENDGRID_FROM_EMAIL
     try:
         from sendgrid import SendGridAPIClient
         from sendgrid.helpers.mail import Mail
         message = Mail(
-            from_email=settings.SENDGRID_FROM_EMAIL,
+            from_email=_from_email,
             to_emails=to_email,
             subject=subject,
             html_content=html_content,
         )
-        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        sg = SendGridAPIClient(_api_key)
         response = sg.send(message)
         log.info("email.sendgrid_sent", to=to_email, status=response.status_code)
         return response.status_code in (200, 202)

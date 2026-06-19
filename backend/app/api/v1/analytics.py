@@ -310,22 +310,28 @@ async def chat_analytics(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin_or_management),
 ):
-    from app.agents.conversational_rag import ConversationalRAGAgent
-    agent = ConversationalRAGAgent()
-    answer, sources, confidence = await agent.query(
-        question=payload.question,
-        trainer_id=str(payload.trainer_id) if payload.trainer_id else None,
-        batch_id=str(payload.batch_id) if payload.batch_id else None,
-        time_range_days=payload.time_range_days,
-        db=db,
-        org_id=str(current_user.organization_id),
-    )
-    return ChatAnalyticsResponse(
-        question=payload.question,
-        answer=answer,
-        sources=sources,
-        confidence=confidence,
-    )
+    import structlog as _sl
+    _log = _sl.get_logger()
+    try:
+        from app.agents.conversational_rag import ConversationalRAGAgent
+        agent = ConversationalRAGAgent()
+        answer, sources, confidence = await agent.query(
+            question=payload.question,
+            trainer_id=str(payload.trainer_id) if payload.trainer_id else None,
+            batch_id=str(payload.batch_id) if payload.batch_id else None,
+            time_range_days=payload.time_range_days,
+            db=db,
+            org_id=str(current_user.organization_id),
+        )
+        return ChatAnalyticsResponse(
+            question=payload.question,
+            answer=answer,
+            sources=sources,
+            confidence=confidence,
+        )
+    except Exception as exc:
+        _log.error("chat_analytics.failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail=f"AI chat error: {exc}")
 
 
 @router.post("/pipeline/trigger", response_model=PipelineRunOut)
@@ -782,9 +788,11 @@ async def system_health_status(
         except Exception as _ge:
             groq_status = f"error: {str(_ge)[:60]}"
 
-    # Email check
-    smtp_configured = bool(settings.SMTP_USER and settings.SMTP_PASSWORD and settings.SMTP_FROM_EMAIL)
-    sendgrid_configured = bool(settings.SENDGRID_API_KEY)
+    # Email check — read fresh settings so we pick up any .env changes without restart
+    from app.core.config import Settings as _Settings
+    _live = _Settings()
+    smtp_configured = bool(_live.SMTP_USER and _live.SMTP_PASSWORD and _live.SMTP_FROM_EMAIL)
+    sendgrid_configured = bool(_live.SENDGRID_API_KEY)
     email_provider = "smtp" if smtp_configured else ("sendgrid" if sendgrid_configured else "none (logging only)")
 
     # Aggregate stats

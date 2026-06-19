@@ -241,7 +241,7 @@ class FeedbackSubmission(Base):
 
     batch = relationship("TrainingBatch", back_populates="feedback_submissions")
     participant = relationship("Participant", back_populates="feedback_submissions")
-    embeddings = relationship("FeedbackEmbedding", back_populates="submission", lazy="dynamic")
+    embeddings = relationship("FeedbackEmbedding", back_populates="submission", lazy="select")
 
 
 class FeedbackEmbedding(Base):
