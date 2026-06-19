@@ -54,6 +54,8 @@ export const batchesApi = {
   create: (data: object) => api.post("/admin/batches", data).then((r) => r.data),
   getParticipants: (id: string, params?: object) =>
     api.get(`/admin/batches/${id}/participants`, { params }).then((r) => r.data),
+  getRoster: (id: string) =>
+    api.get(`/admin/batches/${id}/roster`).then((r) => r.data),
   uploadParticipants: (id: string, data: object) =>
     api.post(`/admin/batches/${id}/participants`, data).then((r) => r.data),
   uploadCSV: (id: string, file: File) => {
@@ -65,6 +67,10 @@ export const batchesApi = {
   },
   sendFeedbackLinks: (id: string) =>
     api.post(`/admin/batches/${id}/send-feedback-links`).then((r) => r.data),
+};
+
+export const participantsApi = {
+  list: (params?: object) => api.get("/admin/participants", { params }).then((r) => r.data),
 };
 
 // ── Feedback ──────────────────────────────────────────────────────────────────
@@ -80,6 +86,8 @@ export const feedbackApi = {
 export const analyticsApi = {
   dashboard: () => api.get("/analytics/dashboard").then((r) => r.data),
   trainer: (id: string) => api.get(`/analytics/trainer/${id}`).then((r) => r.data),
+  trainerHistory: (id: string) => api.get(`/analytics/trainer/${id}/history`).then((r) => r.data),
+  program: (id: string) => api.get(`/analytics/program/${id}`).then((r) => r.data),
   chat: (data: object) => api.post("/analytics/chat", data).then((r) => r.data),
   triggerPipeline: (data: object) => api.post("/analytics/pipeline/trigger", data).then((r) => r.data),
   pipelineRuns: (batchId: string) => api.get(`/analytics/pipeline/runs/${batchId}`).then((r) => r.data),

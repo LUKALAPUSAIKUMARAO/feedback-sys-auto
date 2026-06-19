@@ -19,8 +19,9 @@ from app.schemas.pydantic_schemas import (
     TrainingBatchCreate, TrainingBatchOut, TrainingBatchWithRelations,
     ParticipantCreate, ParticipantOut,
     BulkParticipantUpload, BulkUploadResult,
-    PaginatedResponse
+    PaginatedResponse, RosterParticipantOut,
 )
+from app.models.db_models import FeedbackSubmission
 from app.api.v1.auth import require_admin, require_admin_or_management
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -395,6 +396,57 @@ async def list_batch_participants(
         total=total, page=page, page_size=page_size,
         pages=(total + page_size - 1) // page_size,
     )
+
+
+# ─── Roster with feedback status ─────────────────────────────────────────────
+
+@router.get("/batches/{batch_id}/roster", response_model=list[RosterParticipantOut])
+async def get_batch_roster(
+    batch_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin_or_management),
+):
+    """Return full roster including feedback token URLs and submission status."""
+    from app.core.config import settings
+
+    rosters = (await db.execute(
+        select(BatchRoster)
+        .options(selectinload(BatchRoster.participant))
+        .where(BatchRoster.batch_id == batch_id)
+        .order_by(BatchRoster.enrolled_at)
+    )).scalars().all()
+
+    # Fetch all submissions for this batch in one query
+    submissions = (await db.execute(
+        select(FeedbackSubmission.participant_id, FeedbackSubmission.submitted_at)
+        .where(FeedbackSubmission.batch_id == batch_id)
+    )).all()
+    submitted_map = {str(row.participant_id): row.submitted_at for row in submissions}
+
+    result = []
+    for roster in rosters:
+        p = roster.participant
+        participant_id = str(roster.participant_id)
+        has_submitted = participant_id in submitted_map
+        feedback_url = (
+            f"{settings.FRONTEND_URL}/feedback/{roster.feedback_token}"
+            if roster.feedback_token else None
+        )
+        result.append(RosterParticipantOut(
+            roster_id=str(roster.id),
+            participant_id=participant_id,
+            full_name=p.full_name,
+            email=p.email,
+            employee_id=p.employee_id,
+            department=p.department,
+            feedback_link_sent=roster.feedback_link_sent,
+            feedback_link_sent_at=roster.feedback_link_sent_at,
+            feedback_token=roster.feedback_token,
+            feedback_url=feedback_url,
+            has_submitted=has_submitted,
+            submitted_at=submitted_map.get(participant_id),
+        ))
+    return result
 
 
 # ─── Send feedback links ──────────────────────────────────────────────────────

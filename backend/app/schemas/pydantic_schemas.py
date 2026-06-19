@@ -328,6 +328,86 @@ class PipelineRunOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ─── Program Analytics ───────────────────────────────────────────────────────
+
+class ProgramBatchSummary(BaseModel):
+    batch_id: str
+    batch_code: str
+    title: Optional[str]
+    trainer_name: str
+    start_datetime: datetime
+    end_datetime: datetime
+    status: str
+    enrolled: int
+    responses: int
+    avg_rating: float
+    health_score: float
+    sentiment_positive: float
+
+class ProgramAnalyticsResponse(BaseModel):
+    program_id: str
+    program_title: str
+    description: Optional[str]
+    total_batches: int
+    total_participants: int
+    total_responses: int
+    completion_rate: float
+    avg_rating: float
+    avg_health_score: float
+    nps: float
+    sentiment_positive: float
+    sentiment_negative: float
+    sentiment_neutral: float
+    top_themes: List[Any]
+    batches: List[ProgramBatchSummary]
+    monthly_trend: List[dict]
+
+
+# ─── Trainer History ──────────────────────────────────────────────────────────
+
+class TrainerHistoryPoint(BaseModel):
+    batch_id: str
+    batch_code: str
+    program_title: str
+    snapshot_date: Optional[datetime]
+    health_score: float
+    overall_avg: float
+    response_count: int
+    sentiment_positive: float
+    top_themes: List[Any]
+
+class TrainerHistoryResponse(BaseModel):
+    trainer_id: str
+    trainer_name: str
+    total_batches: int
+    history: List[TrainerHistoryPoint]
+    monthly_trend: List[dict]
+    consistency_score: float
+    growth_score: float
+    best_batch_id: Optional[str]
+    best_batch_title: Optional[str]
+    best_health_score: float
+    worst_health_score: float
+
+
+# ─── Roster ──────────────────────────────────────────────────────────────────
+
+class RosterParticipantOut(BaseModel):
+    roster_id: str
+    participant_id: str
+    full_name: str
+    email: str
+    employee_id: str
+    department: Optional[str]
+    feedback_link_sent: bool
+    feedback_link_sent_at: Optional[datetime]
+    feedback_token: Optional[str]
+    feedback_url: Optional[str]
+    has_submitted: bool
+    submitted_at: Optional[datetime]
+    model_config = {"from_attributes": True}
+
+
 # ─── Pagination ───────────────────────────────────────────────────────────────
 
 class PaginatedResponse(BaseModel):
