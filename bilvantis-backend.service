@@ -1,0 +1,51 @@
+[Unit]
+Description=Bilvantis Training Intelligence Platform — FastAPI Backend
+Documentation=https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+
+# Working directory MUST be backend/ for SQLite path + .env resolution
+WorkingDirectory=APP_DIR_PLACEHOLDER/backend
+
+# Activate venv and launch uvicorn
+ExecStart=VENV_DIR_PLACEHOLDER/bin/uvicorn app.main:app \
+    --host 0.0.0.0 \
+    --port 8002 \
+    --workers 1 \
+    --loop asyncio \
+    --log-level info
+
+# Graceful shutdown
+ExecStop=/bin/kill -SIGTERM $MAINPID
+KillSignal=SIGTERM
+TimeoutStopSec=30
+KillMode=mixed
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+# Environment
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+
+# Logging (journal + files)
+StandardOutput=append:APP_DIR_PLACEHOLDER/logs/backend.log
+StandardError=append:APP_DIR_PLACEHOLDER/logs/backend.log
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=APP_DIR_PLACEHOLDER/backend
+ReadWritePaths=APP_DIR_PLACEHOLDER/logs
+
+[Install]
+WantedBy=multi-user.target
