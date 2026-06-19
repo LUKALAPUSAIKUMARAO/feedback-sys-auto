@@ -1,120 +1,115 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Bilvantis TIP — Start Services
-# Usage: bash start.sh [--no-systemd]
+# Usage: bash start.sh [backend|frontend|all]
 # =============================================================================
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
-
 info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-die()     { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+die()     { echo -e "${RED}[ERR]${NC}   $*" >&2; exit 1; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$APP_DIR/backend"
 FRONTEND_DIR="$APP_DIR/frontend"
 VENV_DIR="$BACKEND_DIR/.venv"
 LOG_DIR="$APP_DIR/logs"
 PID_DIR="$APP_DIR/run"
-
 BACKEND_PORT=8002
 FRONTEND_PORT=3003
+TARGET="${1:-all}"
 
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
-# ── Helper: port in use? ───────────────────────────────────────────────────────
-port_in_use() { ss -tlnp 2>/dev/null | grep -q ":$1 " || netstat -tlnp 2>/dev/null | grep -q ":$1 "; }
+# Fix line endings if needed
+sed -i 's/\r$//' "$0" 2>/dev/null || true
 
-# ── Use systemd if available and running ──────────────────────────────────────
+# ── Systemd detection ─────────────────────────────────────────────────────────
 USE_SYSTEMD=0
-if command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null 2>&1; then
-  if systemctl list-unit-files bilvantis-backend.service &>/dev/null 2>&1; then
-    USE_SYSTEMD=1
+if command -v systemctl &>/dev/null && systemctl list-unit-files bilvantis-backend.service &>/dev/null 2>&1; then
+  USE_SYSTEMD=1
+fi
+
+start_backend() {
+  if [[ $USE_SYSTEMD -eq 1 ]]; then
+    info "Starting backend via systemd..."
+    sudo systemctl start bilvantis-backend 2>/dev/null || systemctl start bilvantis-backend
+    sleep 3
+    systemctl is-active --quiet bilvantis-backend && success "bilvantis-backend is active" || warn "bilvantis-backend failed to start"
+    return
   fi
-fi
+  # Manual start
+  [[ ! -f "$VENV_DIR/bin/activate" ]] && die "venv not found — run deploy.sh first"
+  [[ ! -f "$BACKEND_DIR/.env"      ]] && die "backend/.env not found — run deploy.sh first"
 
-if [[ $USE_SYSTEMD -eq 1 && "${1:-}" != "--no-systemd" ]]; then
-  info "Starting via systemd..."
-  systemctl start bilvantis-backend  && success "bilvantis-backend.service started"
-  systemctl start bilvantis-frontend && success "bilvantis-frontend.service started"
-  sleep 3
-  systemctl is-active --quiet bilvantis-backend  && success "Backend  is running" || warn "Backend  may not be running"
-  systemctl is-active --quiet bilvantis-frontend && success "Frontend is running" || warn "Frontend may not be running"
-  exit 0
-fi
+  if ss -tlnp 2>/dev/null | grep -q ":${BACKEND_PORT} "; then
+    warn "Port ${BACKEND_PORT} already in use — backend may already be running"
+    return
+  fi
 
-# ── Manual start (no systemd or --no-systemd) ─────────────────────────────────
-
-[[ ! -f "$VENV_DIR/bin/activate" ]] && die "Virtual env not found at $VENV_DIR — run deploy.sh first."
-[[ ! -d "$FRONTEND_DIR/.next"   ]] && die "Frontend not built at $FRONTEND_DIR/.next — run deploy.sh first."
-[[ ! -f "$BACKEND_DIR/.env"     ]] && die "backend/.env missing — run deploy.sh first."
-
-# ── Start Backend ─────────────────────────────────────────────────────────────
-if port_in_use "$BACKEND_PORT"; then
-  warn "Port $BACKEND_PORT already in use — backend may already be running."
-else
-  info "Starting FastAPI backend on port $BACKEND_PORT ..."
+  info "Starting backend (port ${BACKEND_PORT})..."
   cd "$BACKEND_DIR"
   source "$VENV_DIR/bin/activate"
   nohup uvicorn app.main:app \
-    --host 0.0.0.0 \
-    --port "$BACKEND_PORT" \
-    --workers 1 \
-    --loop asyncio \
-    --log-level info \
-    > "$LOG_DIR/backend.log" 2>&1 &
-  BACKEND_PID=$!
-  echo "$BACKEND_PID" > "$PID_DIR/backend.pid"
-  deactivate
-  cd "$APP_DIR"
+    --host 0.0.0.0 --port "$BACKEND_PORT" \
+    --workers 1 --loop asyncio --log-level info \
+    >> "$LOG_DIR/backend.log" 2>&1 &
+  echo $! > "$PID_DIR/backend.pid"
+  deactivate; cd "$APP_DIR"
 
-  # Wait up to 20s for backend to be ready
   for i in $(seq 1 20); do
-    sleep 1
-    if curl -sf "http://127.0.0.1:${BACKEND_PORT}/health" &>/dev/null; then
-      success "Backend started (PID $BACKEND_PID) — http://0.0.0.0:${BACKEND_PORT}"
-      break
-    fi
-    if [[ $i -eq 20 ]]; then
-      warn "Backend did not respond in 20s — check $LOG_DIR/backend.log"
-    fi
+    sleep 2
+    curl -sf --max-time 2 "http://127.0.0.1:${BACKEND_PORT}/health" &>/dev/null && \
+      { success "Backend started (PID $(cat "$PID_DIR/backend.pid"))"; return; }
   done
-fi
+  warn "Backend did not respond in 40s — check $LOG_DIR/backend.log"
+}
 
-# ── Start Frontend ─────────────────────────────────────────────────────────────
-if port_in_use "$FRONTEND_PORT"; then
-  warn "Port $FRONTEND_PORT already in use — frontend may already be running."
-else
-  info "Starting Next.js frontend on port $FRONTEND_PORT ..."
+start_frontend() {
+  if [[ $USE_SYSTEMD -eq 1 ]]; then
+    info "Starting frontend via systemd..."
+    sudo systemctl start bilvantis-frontend 2>/dev/null || systemctl start bilvantis-frontend
+    sleep 5
+    systemctl is-active --quiet bilvantis-frontend && success "bilvantis-frontend is active" || warn "bilvantis-frontend failed to start"
+    return
+  fi
+  [[ ! -d "$FRONTEND_DIR/.next" ]] && die ".next build not found — run deploy.sh first"
+
+  if ss -tlnp 2>/dev/null | grep -q ":${FRONTEND_PORT} "; then
+    warn "Port ${FRONTEND_PORT} already in use — frontend may already be running"
+    return
+  fi
+
+  info "Starting frontend (port ${FRONTEND_PORT})..."
   cd "$FRONTEND_DIR"
   nohup node_modules/.bin/next start --port "$FRONTEND_PORT" \
-    > "$LOG_DIR/frontend.log" 2>&1 &
-  FRONTEND_PID=$!
-  echo "$FRONTEND_PID" > "$PID_DIR/frontend.pid"
-
-  # Wait up to 20s for frontend to be ready
-  for i in $(seq 1 20); do
-    sleep 1
-    if curl -sf "http://127.0.0.1:${FRONTEND_PORT}" &>/dev/null; then
-      success "Frontend started (PID $FRONTEND_PID) — http://0.0.0.0:${FRONTEND_PORT}"
-      break
-    fi
-    if [[ $i -eq 20 ]]; then
-      warn "Frontend did not respond in 20s — check $LOG_DIR/frontend.log"
-    fi
-  done
+    >> "$LOG_DIR/frontend.log" 2>&1 &
+  echo $! > "$PID_DIR/frontend.pid"
   cd "$APP_DIR"
-fi
+
+  for i in $(seq 1 20); do
+    sleep 2
+    HTTP=$(curl -so /dev/null -w "%{http_code}" --max-time 2 "http://127.0.0.1:${FRONTEND_PORT}" 2>/dev/null || echo "000")
+    [[ "$HTTP" == "200" || "$HTTP" == "302" || "$HTTP" == "308" ]] && \
+      { success "Frontend started (PID $(cat "$PID_DIR/frontend.pid"))"; return; }
+  done
+  warn "Frontend did not respond in 40s — check $LOG_DIR/frontend.log"
+}
+
+case "$TARGET" in
+  backend)  start_backend ;;
+  frontend) start_frontend ;;
+  all|*)    start_backend; start_frontend ;;
+esac
 
 VM_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
 echo ""
-echo -e "${GREEN}${BOLD}Services started:${NC}"
-echo -e "  Frontend  : http://${VM_IP}:${FRONTEND_PORT}"
-echo -e "  Backend   : http://${VM_IP}:${BACKEND_PORT}"
-echo -e "  API Docs  : http://${VM_IP}:${BACKEND_PORT}/api/docs"
-echo -e "  Logs      : tail -f ${LOG_DIR}/backend.log"
+echo -e "${GREEN}${BOLD}Services running:${NC}"
+echo -e "  Application : http://${VM_IP}:${FRONTEND_PORT}/admin/login"
+echo -e "  Backend     : http://${VM_IP}:${BACKEND_PORT}"
+echo -e "  API Docs    : http://${VM_IP}:${BACKEND_PORT}/api/docs"
+echo -e "  Logs        : tail -f ${LOG_DIR}/backend.log"
 echo ""

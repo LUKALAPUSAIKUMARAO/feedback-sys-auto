@@ -1,108 +1,78 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Bilvantis TIP — Package for Deployment
-# Creates a ZIP of the application, excluding build artefacts and secrets.
-# Usage: bash package.sh [output-filename]
-# Output: bilvantis-tip-YYYYMMDD-HHMMSS.zip (or custom name)
+# Bilvantis TIP — Create Deployment ZIP
+# Usage  : bash package.sh [output-name.zip]
+# Creates: bilvantis-tip-YYYYMMDD-HHMMSS.zip ready for transfer to new VM
 # =============================================================================
 set -euo pipefail
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+GREEN='\033[0;32m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 info()    { echo -e "${CYAN}[INFO]${NC}  $*"; }
 success() { echo -e "${GREEN}[OK]${NC}    $*"; }
-die()     { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
+die()     { echo -e "\033[0;31m[ERR]${NC}   $*" >&2; exit 1; }
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_NAME=$(basename "$SCRIPT_DIR")
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME="bilvantis-tip"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S 2>/dev/null || date +%s)
-OUTPUT="${1:-${APP_NAME}-${TIMESTAMP}.zip}"
+OUTPUT="${1:-${APP_DIR}/${APP_NAME}-${TIMESTAMP}.zip}"
+[[ "$OUTPUT" != /* ]] && OUTPUT="$APP_DIR/$OUTPUT"
 
-# Ensure output is an absolute path
-[[ "$OUTPUT" != /* ]] && OUTPUT="$SCRIPT_DIR/$OUTPUT"
+command -v zip &>/dev/null || {
+  info "Installing zip..."
+  apt-get install -y -qq zip 2>/dev/null || yum install -y zip 2>/dev/null || die "Cannot install zip"
+}
 
-info "Packaging: $SCRIPT_DIR"
-info "Output:    $OUTPUT"
+info "Source  : $APP_DIR"
+info "Output  : $OUTPUT"
 
-# ── Verify zip is available ───────────────────────────────────────────────────
-if ! command -v zip &>/dev/null; then
-  echo "zip not found. Installing..."
-  apt-get install -y -qq zip 2>/dev/null || \
-  dnf install -y zip 2>/dev/null || \
-  yum install -y zip 2>/dev/null || \
-  die "Could not install zip. Please install it manually."
-fi
-
-# ── Build exclusion list ──────────────────────────────────────────────────────
+# ── Exclusion patterns ────────────────────────────────────────────────────────
 EXCLUDES=(
-  # VCS
-  "*.git*"
-  "*/.git/*"
-  # Python
-  "*/__pycache__/*"
-  "*/*.pyc"
-  "*/*.pyo"
-  "*/.pytest_cache/*"
-  "*/.mypy_cache/*"
-  "*/backend/.venv/*"
-  "*/backend/venv/*"
+  ".git/*"  ".git"
+  "*/__pycache__/*"  "*/.pytest_cache/*"  "*/.mypy_cache/*"
+  "*.pyc"  "*.pyo"  "*.pyd"
+  "*/backend/.venv/*"  "*/backend/venv/*"
   "*/.eggs/*"
-  "*/dist/*"
-  "*/build/*"
-  "*.egg-info/*"
-  # Node
   "*/node_modules/*"
-  "*/.next/*"
-  "*/.turbo/*"
-  "*/.vercel/*"
-  "*/out/*"
-  # Secrets
+  "*/.next/*"  "*/.turbo/*"  "*/out/*"
   "*/backend/.env"
   "*/frontend/.env.local"
-  "*.env.local"
-  # Database (may contain PII — target VM gets a fresh DB)
-  "*/backend/*.db"
-  "*/backend/*.db-shm"
-  "*/backend/*.db-wal"
-  # Logs
+  "*/backend/*.db"  "*/backend/*.db-shm"  "*/backend/*.db-wal"
+  "*/backend/feedback.db"  "*/backend/test.db"
   "*/logs/*.log"
   "*/run/*.pid"
-  # IDE / OS
-  "*.DS_Store"
-  "*Thumbs.db"
-  "*/.idea/*"
-  "*/.vscode/*"
-  # Temp / package output
-  "*.zip"
-  "*.tar.gz"
+  "*.DS_Store"  "*Thumbs.db"
+  "*/.idea/*"  "*/.vscode/*"
+  "*/.claude/*"
+  "*.zip"  "*.tar.gz"
+  "*/backend/check_db.py"  "*/backend/test_endpoint.py"  "*/backend/test_login.py"
 )
 
-# Build zip -x arguments
-EXCLUDE_ARGS=()
-for pat in "${EXCLUDES[@]}"; do
-  EXCLUDE_ARGS+=("-x" "$pat")
-done
+EXCL_ARGS=()
+for pat in "${EXCLUDES[@]}"; do EXCL_ARGS+=("-x" "$pat"); done
 
-# Remove old output if it exists
+cd "$APP_DIR"
 rm -f "$OUTPUT"
-
-cd "$SCRIPT_DIR"
-info "Creating ZIP archive (excluding build artifacts, secrets, database)..."
-
-zip -r "$OUTPUT" . "${EXCLUDE_ARGS[@]}" 2>/dev/null
+zip -r "$OUTPUT" . "${EXCL_ARGS[@]}" 2>/dev/null
 
 ZIP_SIZE=$(du -sh "$OUTPUT" 2>/dev/null | cut -f1)
-FILE_COUNT=$(unzip -l "$OUTPUT" 2>/dev/null | tail -1 | awk '{print $2}')
+FILE_COUNT=$(unzip -l "$OUTPUT" 2>/dev/null | tail -1 | awk '{print $2}' || echo "?")
 
 echo ""
-echo -e "${GREEN}${BOLD}Package created successfully!${NC}"
+echo -e "${GREEN}${BOLD}Deployment package ready:${NC}"
 echo -e "  File  : $OUTPUT"
 echo -e "  Size  : $ZIP_SIZE"
 echo -e "  Files : $FILE_COUNT"
 echo ""
-echo -e "${BOLD}Deploy to a new VM:${NC}"
-echo -e "  scp $OUTPUT user@<VM_IP>:/opt/"
-echo -e "  ssh user@<VM_IP>"
-echo -e "  cd /opt && unzip $(basename "$OUTPUT") -d feedback-system-auto"
-echo -e "  cd feedback-system-auto"
-echo -e "  sudo bash deploy.sh --groq-key <YOUR_GROQ_KEY> --smtp-user <EMAIL> --smtp-pass <APPPASS>"
+echo -e "${BOLD}Transfer and deploy to new Ubuntu 22.04 VM:${NC}"
+echo ""
+echo -e "  # On this machine:"
+echo -e "  scp $(basename "$OUTPUT") ubuntu@<NEW_VM_IP>:/home/ubuntu/"
+echo ""
+echo -e "  # On the new VM:"
+echo -e "  ssh ubuntu@<NEW_VM_IP>"
+echo -e "  sudo apt-get install -y unzip"
+echo -e "  mkdir -p /opt/bilvantis-tip"
+echo -e "  unzip $(basename "$OUTPUT") -d /opt/bilvantis-tip"
+echo -e "  cd /opt/bilvantis-tip"
+echo -e "  sudo bash deploy.sh"
 echo ""

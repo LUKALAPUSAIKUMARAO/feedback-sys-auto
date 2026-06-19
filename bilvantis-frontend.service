@@ -1,45 +1,44 @@
+# =============================================================================
+# Bilvantis TIP — Next.js Frontend systemd Service Unit
+# Installed to: /etc/systemd/system/bilvantis-frontend.service
+# NOTE: Paths are written at deploy time by deploy.sh — do not edit here.
+#       To regenerate, re-run: sudo bash deploy.sh
+# =============================================================================
+
 [Unit]
-Description=Bilvantis Training Intelligence Platform — Next.js Frontend
+Description=Bilvantis TIP — Next.js Frontend (Node.js 20)
 Documentation=https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto
 After=network.target bilvantis-backend.service
 Wants=bilvantis-backend.service
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
+User=ubuntu
+Group=ubuntu
 
-WorkingDirectory=APP_DIR_PLACEHOLDER/frontend
+WorkingDirectory=/opt/bilvantis-tip/frontend
 
-# Launch Next.js on port 3003 (overrides package.json default of 3000)
+# --port 3003 overrides package.json "start" script default of 3000
 ExecStart=/usr/bin/node node_modules/.bin/next start --port 3003
 
-# Graceful shutdown
-ExecStop=/bin/kill -SIGTERM $MAINPID
+ExecStop=/bin/kill -s SIGTERM $MAINPID
 KillSignal=SIGTERM
 TimeoutStopSec=30
 KillMode=mixed
 
-# Restart policy
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=60s
+StartLimitIntervalSec=120s
 StartLimitBurst=5
 
-# Environment
 Environment=NODE_ENV=production
 Environment=PORT=3003
 
-# Logging
-StandardOutput=append:APP_DIR_PLACEHOLDER/logs/frontend.log
-StandardError=append:APP_DIR_PLACEHOLDER/logs/frontend.log
+StandardOutput=append:/opt/bilvantis-tip/logs/frontend.log
+StandardError=append:/opt/bilvantis-tip/logs/frontend.log
 
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=APP_DIR_PLACEHOLDER/frontend
-ReadWritePaths=APP_DIR_PLACEHOLDER/logs
 
 [Install]
 WantedBy=multi-user.target

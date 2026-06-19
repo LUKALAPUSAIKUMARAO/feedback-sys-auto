@@ -1,533 +1,481 @@
 # Bilvantis Training Intelligence Platform — Deployment Guide
 
-## Architecture Overview
+## Application Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                     Bilvantis TIP Stack                             │
-├────────────────────────┬────────────────────────────────────────────┤
-│  Frontend              │  Backend                                   │
-│  Next.js 15 + React 19 │  Python 3.12 + FastAPI 0.115.5            │
-│  TypeScript + Tailwind │  SQLAlchemy 2.0 async + aiosqlite          │
-│  Port: 3003            │  Port: 8002                                │
-│  next start --port 3003│  uvicorn (1 worker, asyncio loop)          │
-│                        │  Celery (memory:// — no Redis needed)      │
-├────────────────────────┴────────────────────────────────────────────┤
-│  Database : SQLite (embedded — no server)                           │
-│    Path   : backend/feedback_platform.db                            │
-│  Queue    : fakeredis + memory:// (embedded — no Redis)             │
-│  AI       : Groq API — llama-3.3-70b-versatile (external HTTPS)    │
-│  Email    : Gmail SMTP via App Password (optional, external)        │
-└─────────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│              Bilvantis TIP — Production Stack                          │
+├───────────────────────────┬────────────────────────────────────────────┤
+│  FRONTEND                 │  BACKEND                                   │
+│  Next.js 15 + React 19    │  Python 3.12 + FastAPI 0.115.5            │
+│  TypeScript + Tailwind    │  SQLAlchemy 2.0 async + aiosqlite          │
+│  Port: 3003               │  Port: 8002                                │
+│  Systemd: frontend svc    │  Systemd: backend svc                      │
+├───────────────────────────┴────────────────────────────────────────────┤
+│  DATABASE   : SQLite — embedded, no server, auto-created               │
+│    File     : backend/feedback_platform.db                             │
+│  QUEUE      : Celery memory:// — embedded, no Redis server             │
+│  AI         : Groq API (llama-3.3-70b-versatile) — external HTTPS     │
+│  EMAIL      : Gmail SMTP via App Password — external, optional         │
+├────────────────────────────────────────────────────────────────────────┤
+│  PORTS : 3003 (frontend)  8002 (backend)                               │
+│  OS    : Ubuntu 22.04 LTS                                              │
+│  Admin : admin@bilvantis.io / Admin@1234 (seeded on first boot)        │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-**No external infrastructure required** — no PostgreSQL, no Redis, no Docker.
-
----
-
-## VM Requirements
-
-| Item | Minimum | Recommended |
-|------|---------|-------------|
-| OS | Ubuntu 20.04 / 22.04 / 24.04 | Ubuntu 22.04 LTS |
-| CPU | 2 vCPU | 4 vCPU |
-| RAM | 2 GB | 4 GB |
-| Disk | 10 GB free | 20 GB |
-| Network | Outbound HTTPS (443) | — |
-| Root | Required | — |
-
-Python 3.12 and Node.js 20 are **installed automatically** by `deploy.sh`.
+**Zero external infrastructure** — no PostgreSQL, no Redis, no Docker required.
 
 ---
 
 ## What You Need Before Starting
 
-1. **The ZIP file** — already in GitHub or copy from source VM
-2. **Groq API key** — get free at [console.groq.com/keys](https://console.groq.com/keys)
-3. **Gmail App Password** (optional, for email) — [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+| Item | Where to get it |
+|------|-----------------|
+| Ubuntu 22.04 LTS VM | Any cloud provider (AWS, Azure, GCP, DigitalOcean) |
+| Groq API key | [console.groq.com/keys](https://console.groq.com/keys) — free tier available |
+| Gmail App Password | [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) — optional |
+| 2+ GB RAM, 10+ GB disk | Recommended: 4 GB RAM, 20 GB disk |
+| Outbound HTTPS (443) | For Groq API and Gmail SMTP |
+| Root or sudo access | Required to install packages and create systemd services |
 
 ---
 
-## Complete Step-by-Step Deployment
+## COMPLETE STEP-BY-STEP DEPLOYMENT
 
-### PHASE 1 — Get the ZIP onto the VM
+### STEP 1 — SSH into the new Ubuntu 22.04 VM
 
-**Option A — Download directly from GitHub (recommended)**
 ```bash
-# SSH into the VM first
-ssh ubuntu@YOUR_VM_IP
+ssh ubuntu@<YOUR_NEW_VM_IP>
+```
 
-# Install unzip if needed
-sudo apt-get install -y unzip curl
+---
 
-# Download the ZIP from GitHub
+### STEP 2 — Install prerequisites on the VM
+
+```bash
+sudo apt-get update
+sudo apt-get install -y unzip curl git
+```
+
+---
+
+### STEP 3 — Get the application onto the VM
+
+**Option A — Download from GitHub** *(recommended)*
+
+```bash
+# Download the pre-built deployment ZIP from GitHub
 curl -L -o bilvantis-tip.zip \
   https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto/archive/refs/heads/main.zip
-
-# OR download a specific release ZIP (replace filename if different)
-# curl -L -o bilvantis-tip.zip \
-#   https://raw.githubusercontent.com/LUKALAPUSAIKUMARAO/feedback-sys-auto/main/bilvantis-tip-20260619-131906.zip
 ```
 
-**Option B — Copy from source VM via SCP**
+**Option B — SCP from your source machine** *(if you have the ZIP locally)*
+
 ```bash
-# Run this on your SOURCE machine (not the target VM)
-scp bilvantis-tip-*.zip ubuntu@TARGET_VM_IP:/home/ubuntu/
+# Run this on your SOURCE machine (not the VM):
+scp bilvantis-tip-*.zip ubuntu@<NEW_VM_IP>:/home/ubuntu/
 ```
 
-**Option C — Clone the repo directly**
+**Option C — Clone directly from GitHub**
+
 ```bash
-# SSH into the VM
-ssh ubuntu@YOUR_VM_IP
-
-# Install git
-sudo apt-get install -y git
-
-# Clone (no need to unzip)
-git clone https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto.git feedback-system-auto
-cd feedback-system-auto
-
-# Skip PHASE 2 and go straight to PHASE 3
+git clone https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto.git bilvantis-tip
+# Skip STEP 4 — go straight to STEP 5
+cd bilvantis-tip
 ```
 
 ---
 
-### PHASE 2 — Unzip and Enter the Directory
+### STEP 4 — Unzip the application
 
 ```bash
-# Create a clean deployment directory
-sudo mkdir -p /opt/feedback-system-auto
-sudo chown $USER:$USER /opt/feedback-system-auto
+# Create the install directory
+sudo mkdir -p /opt/bilvantis-tip
+sudo chown ubuntu:ubuntu /opt/bilvantis-tip
 
-# Unzip into it
-unzip bilvantis-tip.zip -d /opt/feedback-system-auto
+# Unzip
+unzip bilvantis-tip.zip -d /opt/bilvantis-tip
 
-# If the zip created a nested folder (e.g. feedback-sys-auto-main/), move contents up
-# Check first:
-ls /opt/feedback-system-auto/
-
-# If you see a subfolder like "feedback-sys-auto-main", run:
-# mv /opt/feedback-system-auto/feedback-sys-auto-main/* /opt/feedback-system-auto/
-# rm -rf /opt/feedback-system-auto/feedback-sys-auto-main
+# If GitHub download creates a nested subfolder (feedback-sys-auto-main/), flatten it:
+ls /opt/bilvantis-tip/
+# If you see a single subdirectory like "feedback-sys-auto-main", run:
+# shopt -s dotglob && mv /opt/bilvantis-tip/feedback-sys-auto-main/* /opt/bilvantis-tip/ && shopt -u dotglob
+# rm -rf /opt/bilvantis-tip/feedback-sys-auto-main
 
 # Enter the directory
-cd /opt/feedback-system-auto
+cd /opt/bilvantis-tip
 
-# Verify the scripts are present
+# Confirm the scripts are present
 ls -la deploy.sh start.sh stop.sh restart.sh healthcheck.sh
 ```
 
 ---
 
-### PHASE 3 — Run the Deployment Script (Single Command)
+### STEP 5 — Run the deployment script
 
 ```bash
-# Make sure you are inside /opt/feedback-system-auto
-pwd
-# Should print: /opt/feedback-system-auto
-
-# Run deploy.sh with your credentials
-sudo bash deploy.sh \
-  --groq-key  gsk_YOUR_GROQ_API_KEY_HERE \
-  --smtp-user lukalapusaikumar1@gmail.com \
-  --smtp-pass tjwwmcpvhwtkdnlg
+# Full automated deploy (installs Python 3.12, Node.js 20, builds frontend,
+# creates systemd services, starts everything, runs health check)
+sudo bash deploy.sh
 ```
 
-> **If you do not have SMTP credentials**, run without them (email will be disabled):
-> ```bash
-> sudo bash deploy.sh --groq-key gsk_YOUR_GROQ_API_KEY_HERE
-> ```
+**The script embeds default credentials from the source VM.** You may override them:
 
-**What deploy.sh does automatically (no input required):**
+```bash
+# Override AI key and/or email credentials:
+sudo bash deploy.sh \
+  --groq-key  gsk_YOUR_DIFFERENT_GROQ_KEY \
+  --smtp-user your.email@gmail.com \
+  --smtp-pass your_16_char_app_password
+```
 
-| Step | Action |
-|------|--------|
-| 1 | Installs Python 3.12 via deadsnakes PPA |
-| 2 | Installs Node.js 20 LTS via NodeSource |
-| 3 | Creates Python virtual environment at `backend/.venv` |
-| 4 | Installs all pip packages from `backend/requirements.txt` |
-| 5 | Auto-detects VM IP address |
-| 6 | Creates `backend/.env` with all settings |
-| 7 | Creates `frontend/.env.local` with correct API URL |
-| 8 | Runs `npm install` in the frontend |
-| 9 | Builds Next.js for production (`npm run build`) |
-| 10 | Installs systemd service files |
-| 11 | Enables services to auto-start on reboot |
-| 12 | Starts backend (port 8002) and frontend (port 3003) |
-| 13 | Runs health check and prints the access URLs |
+**What `deploy.sh` does automatically (no interaction required):**
 
-**Total time: ~10–15 minutes** (mostly downloading packages)
+| Step | Action | Duration |
+|------|--------|----------|
+| 1 | Fix line endings on all .sh scripts | < 1s |
+| 2 | Install system packages (curl, build-essential, sqlite3…) | ~1 min |
+| 2 | Install **Python 3.12** via deadsnakes PPA | ~2 min |
+| 2 | Install **Node.js 20 LTS** via NodeSource | ~1 min |
+| 3 | Create Python venv + install 25 pip packages | ~2 min |
+| 4 | Auto-detect VM IP, generate SECRET_KEY | < 1s |
+| 4 | Write `backend/.env` with all credentials | < 1s |
+| 4 | Write `frontend/.env.local` with correct API URL | < 1s |
+| 5 | `npm install` (frontend packages) | ~2 min |
+| 5 | `npm run build` (Next.js production bundle) | ~1 min |
+| 6 | Validate backend Python imports | < 5s |
+| 7 | Write + enable **systemd service units** | < 5s |
+| 8 | Start both services, wait for readiness | ~30s |
+| 9 | Run health check, print status report | < 5s |
+
+**Total: approximately 10–15 minutes**
 
 ---
 
-### PHASE 4 — Open Firewall Ports
-
-After deployment, open ports 3003 and 8002 so they are accessible from outside the VM:
+### STEP 6 — Open firewall ports
 
 ```bash
-# Ubuntu UFW firewall
+# Allow access from outside the VM
 sudo ufw allow 3003/tcp comment "Bilvantis Frontend"
-sudo ufw allow 8002/tcp comment "Bilvantis Backend"
+sudo ufw allow 8002/tcp comment "Bilvantis Backend API"
 sudo ufw reload
 sudo ufw status
-
-# OR — RHEL / CentOS firewalld
-sudo firewall-cmd --permanent --add-port=3003/tcp
-sudo firewall-cmd --permanent --add-port=8002/tcp
-sudo firewall-cmd --reload
-sudo firewall-cmd --list-ports
-
-# OR — AWS / Azure / GCP: add inbound rules in the console for ports 3003 and 8002
 ```
+
+For cloud provider security groups (AWS/Azure/GCP) — add inbound rules for TCP ports **3003** and **8002**.
 
 ---
 
-### PHASE 5 — Verify Everything Is Running
+### STEP 7 — Verify the deployment
+
+The deploy script runs this automatically, but you can re-run anytime:
 
 ```bash
-# Run the built-in health check
-bash /opt/feedback-system-auto/healthcheck.sh
+# Full health check with output
+bash /opt/bilvantis-tip/healthcheck.sh
 
-# Manual checks
-curl http://localhost:8002/health          # should return {"status":"healthy",...}
-curl -I http://localhost:3003             # should return HTTP 200 or 302
-curl http://localhost:8002/api/docs       # Swagger UI
+# Quick API ping
+curl http://localhost:8002/health
 
-# Check service status (if systemd is available)
+# Service status
 sudo systemctl status bilvantis-backend
 sudo systemctl status bilvantis-frontend
 
-# View live logs
-tail -f /opt/feedback-system-auto/logs/backend.log
-tail -f /opt/feedback-system-auto/logs/frontend.log
+# Live logs
+tail -f /opt/bilvantis-tip/logs/backend.log
 ```
 
 ---
 
-### PHASE 6 — Open in Browser
+### STEP 8 — Open in browser
 
-Replace `YOUR_VM_IP` with the actual IP of your VM:
-
-| URL | What you see |
+| URL | Description |
 |-----|-------------|
-| `http://YOUR_VM_IP:3003` | Application home page |
-| `http://YOUR_VM_IP:3003/admin/login` | Admin login page |
-| `http://YOUR_VM_IP:8002/health` | Backend health JSON |
-| `http://YOUR_VM_IP:8002/api/docs` | Swagger API documentation |
+| `http://<VM_IP>:3003/admin/login` | **Application — Admin Login** |
+| `http://<VM_IP>:3003` | Application home |
+| `http://<VM_IP>:8002/health` | Backend health JSON |
+| `http://<VM_IP>:8002/api/docs` | Swagger API documentation |
 
-**Login credentials:**
+**Admin credentials:**
 
 | Field | Value |
 |-------|-------|
 | Email | `admin@bilvantis.io` |
 | Password | `Admin@1234` |
 
+> The admin account is seeded automatically by the backend on its first startup.
+
 ---
 
-## All Commands — Quick Reference
+## All Commands — Copy-Paste Reference
 
 ```bash
-# ── 1. SSH into VM ──────────────────────────────────────────────────
-ssh ubuntu@YOUR_VM_IP
+# ── 1. SSH into VM ─────────────────────────────────────────────────────
+ssh ubuntu@NEW_VM_IP
 
-# ── 2. Prepare directory ────────────────────────────────────────────
-sudo apt-get install -y unzip curl
-sudo mkdir -p /opt/feedback-system-auto
-sudo chown $USER:$USER /opt/feedback-system-auto
+# ── 2. Install prerequisites ────────────────────────────────────────────
+sudo apt-get update && sudo apt-get install -y unzip curl git
 
-# ── 3. Get the application ──────────────────────────────────────────
-# Option A: from GitHub ZIP
+# ── 3. Get the application ──────────────────────────────────────────────
 curl -L -o bilvantis-tip.zip \
   https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto/archive/refs/heads/main.zip
-unzip bilvantis-tip.zip -d /opt/feedback-system-auto
 
-# Option B: git clone
-# git clone https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto.git \
-#           /opt/feedback-system-auto
+# ── 4. Set up directory ─────────────────────────────────────────────────
+sudo mkdir -p /opt/bilvantis-tip
+sudo chown ubuntu:ubuntu /opt/bilvantis-tip
+unzip bilvantis-tip.zip -d /opt/bilvantis-tip
+cd /opt/bilvantis-tip
+# Flatten if nested (GitHub downloads create a subfolder):
+# shopt -s dotglob && mv feedback-sys-auto-main/* . && shopt -u dotglob && rm -rf feedback-sys-auto-main
 
-# ── 4. Enter the directory ──────────────────────────────────────────
-cd /opt/feedback-system-auto
+# ── 5. Deploy ───────────────────────────────────────────────────────────
+sudo bash deploy.sh
 
-# ── 5. Deploy ───────────────────────────────────────────────────────
-sudo bash deploy.sh \
-  --groq-key  gsk_YOUR_GROQ_KEY \
-  --smtp-user your@gmail.com \
-  --smtp-pass your_app_password
+# ── 6. Open firewall ────────────────────────────────────────────────────
+sudo ufw allow 3003/tcp && sudo ufw allow 8002/tcp && sudo ufw reload
 
-# ── 6. Open firewall ports ──────────────────────────────────────────
-sudo ufw allow 3003/tcp
-sudo ufw allow 8002/tcp
-sudo ufw reload
-
-# ── 7. Health check ─────────────────────────────────────────────────
+# ── 7. Verify ───────────────────────────────────────────────────────────
 bash healthcheck.sh
+curl http://localhost:8002/health
 
-# ── 8. Access the app ───────────────────────────────────────────────
-# Open browser: http://YOUR_VM_IP:3003
-# Admin login:  admin@bilvantis.io / Admin@1234
+# ── 8. Open in browser ──────────────────────────────────────────────────
+# http://NEW_VM_IP:3003/admin/login
+# Login: admin@bilvantis.io / Admin@1234
 ```
 
 ---
 
-## After Deployment — Day-to-Day Commands
+## Ports and URLs
 
-### Start / Stop / Restart
+| Service | Port | URL |
+|---------|------|-----|
+| Frontend (Next.js) | **3003** | `http://VM_IP:3003` |
+| Admin Login | **3003** | `http://VM_IP:3003/admin/login` |
+| Backend (FastAPI) | **8002** | `http://VM_IP:8002` |
+| API Docs (Swagger) | **8002** | `http://VM_IP:8002/api/docs` |
+| Health Endpoint | **8002** | `http://VM_IP:8002/health` |
+
+---
+
+## Service Management
+
 ```bash
-# Using provided scripts (works with or without systemd)
-bash /opt/feedback-system-auto/start.sh
-bash /opt/feedback-system-auto/stop.sh
-bash /opt/feedback-system-auto/restart.sh
+# ── Status ──────────────────────────────────────────────────────────────
+sudo systemctl status bilvantis-backend
+sudo systemctl status bilvantis-frontend
 
-# Restart one service only
-bash /opt/feedback-system-auto/restart.sh backend
-bash /opt/feedback-system-auto/restart.sh frontend
+# ── Start / Stop / Restart ──────────────────────────────────────────────
+bash /opt/bilvantis-tip/start.sh
+bash /opt/bilvantis-tip/stop.sh
+bash /opt/bilvantis-tip/restart.sh
+bash /opt/bilvantis-tip/restart.sh backend    # backend only
+bash /opt/bilvantis-tip/restart.sh frontend   # frontend only
 
 # Using systemd directly
 sudo systemctl start   bilvantis-backend bilvantis-frontend
 sudo systemctl stop    bilvantis-backend bilvantis-frontend
 sudo systemctl restart bilvantis-backend bilvantis-frontend
-sudo systemctl status  bilvantis-backend bilvantis-frontend
-```
+sudo systemctl enable  bilvantis-backend bilvantis-frontend   # auto-start on reboot
+sudo systemctl disable bilvantis-backend bilvantis-frontend
 
-### View Logs
-```bash
-# Live log tails
-tail -f /opt/feedback-system-auto/logs/backend.log
-tail -f /opt/feedback-system-auto/logs/frontend.log
-
-# Via systemd journal
+# ── Logs ────────────────────────────────────────────────────────────────
+tail -f /opt/bilvantis-tip/logs/backend.log
+tail -f /opt/bilvantis-tip/logs/frontend.log
 sudo journalctl -u bilvantis-backend  -f --no-pager
 sudo journalctl -u bilvantis-frontend -f --no-pager
+sudo journalctl -u bilvantis-backend  -n 50 --no-pager     # last 50 lines
 
-# Last 50 lines
-sudo journalctl -u bilvantis-backend  -n 50 --no-pager
-```
+# ── Health check ────────────────────────────────────────────────────────
+bash /opt/bilvantis-tip/healthcheck.sh
+bash /opt/bilvantis-tip/healthcheck.sh --json     # machine-readable JSON
+bash /opt/bilvantis-tip/healthcheck.sh --quiet    # silent, exit 0/1
 
-### Health Check
-```bash
-bash /opt/feedback-system-auto/healthcheck.sh
-
-# Machine-readable (for monitoring scripts)
-bash /opt/feedback-system-auto/healthcheck.sh --json
-
-# Silent (exit 0 = healthy, exit 1 = unhealthy)
-bash /opt/feedback-system-auto/healthcheck.sh --quiet && echo "UP" || echo "DOWN"
-```
-
-### Backup the Database
-```bash
-# Snapshot the SQLite database
-sqlite3 /opt/feedback-system-auto/backend/feedback_platform.db \
-  ".backup '/backup/tip-$(date +%Y%m%d-%H%M%S).db'"
+# ── Database backup ─────────────────────────────────────────────────────
+sqlite3 /opt/bilvantis-tip/backend/feedback_platform.db \
+  ".backup '/tmp/tip-$(date +%Y%m%d-%H%M%S).db'"
 ```
 
 ---
 
-## Ports Reference
-
-| Service | Port | URL |
-|---------|------|-----|
-| Frontend (Next.js) | **3003** | `http://VM_IP:3003` |
-| Backend (FastAPI) | **8002** | `http://VM_IP:8002` |
-| API Docs (Swagger) | **8002** | `http://VM_IP:8002/api/docs` |
-| Health endpoint | **8002** | `http://VM_IP:8002/health` |
-
----
-
-## Environment Variables (backend/.env)
-
-Created automatically by `deploy.sh`. Edit with `nano /opt/feedback-system-auto/backend/.env`.
-
-### Required
-
-| Variable | Notes |
-|----------|-------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///./feedback_platform.db` |
-| `SYNC_DATABASE_URL` | `sqlite:///./feedback_platform.db` |
-| `SECRET_KEY` | Auto-generated 64-char hex string |
-| `GROQ_API_KEY` | Set via `--groq-key` flag — required for AI chat |
-
-### Optional (email)
-
-| Variable | Notes |
-|----------|-------|
-| `SMTP_USER` | Gmail address |
-| `SMTP_PASSWORD` | 16-char Gmail App Password |
-| `SMTP_FROM_EMAIL` | Same as `SMTP_USER` |
-| `SMTP_FROM_NAME` | Display name (default: `Bilvantis TIP`) |
-
-### Auto-detected
-
-| Variable | Value |
-|----------|-------|
-| `FRONTEND_URL` | `http://<VM_IP>:3003` |
-| `BACKEND_URL` | `http://<VM_IP>:8002` |
-| `CELERY_BROKER_URL` | `memory://` |
-| `CELERY_RESULT_BACKEND` | `cache+memory://` |
-
-After editing `.env`, restart the backend:
-```bash
-bash /opt/feedback-system-auto/restart.sh backend
-```
-
----
-
-## File Structure (after deployment)
+## File Structure After Deployment
 
 ```
-/opt/feedback-system-auto/
-├── deploy.sh                   ← Run once on fresh VM
-├── start.sh                    ← Start both services
-├── stop.sh                     ← Stop both services
-├── restart.sh                  ← Restart all or one service
-├── healthcheck.sh              ← Health check (exit 0/1)
-├── package.sh                  ← Create ZIP for next deployment
-├── .env.example                ← Template for backend/.env
-├── bilvantis-backend.service   ← systemd unit (FastAPI)
-├── bilvantis-frontend.service  ← systemd unit (Next.js)
-├── DEPLOYMENT.md               ← This document
+/opt/bilvantis-tip/               ← application root
+├── deploy.sh                     ← main deploy script (idempotent)
+├── start.sh                      ← start both services
+├── stop.sh                       ← stop both services
+├── restart.sh                    ← restart all or one service
+├── healthcheck.sh                ← health check (exit 0/1)
+├── package.sh                    ← create new ZIP for transfer
+├── .env.example                  ← env var template
+├── DEPLOYMENT.md                 ← this guide
 │
 ├── backend/
-│   ├── .env                    ← Secrets (auto-created, never commit)
-│   ├── .venv/                  ← Python 3.12 virtualenv (auto-created)
-│   ├── feedback_platform.db    ← SQLite DB (auto-created at startup)
-│   ├── requirements.txt
+│   ├── .env                      ← secrets (created by deploy.sh, 600 perms)
+│   ├── .venv/                    ← Python 3.12 venv (created by deploy.sh)
+│   ├── feedback_platform.db      ← SQLite DB (created on first backend start)
+│   ├── requirements.txt          ← 25 Python packages
 │   └── app/
-│       ├── main.py             ← FastAPI entry point
-│       ├── core/config.py      ← Settings loader (absolute .env path)
-│       ├── core/email.py       ← SMTP / SendGrid email service
-│       ├── api/v1/             ← REST API endpoints
-│       ├── agents/             ← 7 Groq AI agent pipeline
-│       ├── models/             ← SQLAlchemy ORM
-│       └── tasks/              ← Celery background tasks
+│       ├── main.py               ← FastAPI entrypoint + lifespan (seed + tables)
+│       ├── core/
+│       │   ├── config.py         ← Settings class (absolute .env path)
+│       │   └── email.py          ← SMTP / SendGrid
+│       ├── api/v1/               ← 7 REST endpoint modules
+│       ├── agents/               ← 7 Groq AI agent pipeline
+│       ├── models/               ← SQLAlchemy ORM (9 tables)
+│       └── tasks/celery_app.py   ← Celery (memory://, task_always_eager)
 │
 ├── frontend/
-│   ├── .env.local              ← NEXT_PUBLIC_API_URL (auto-created)
-│   ├── .next/                  ← Production build (auto-created)
-│   ├── package.json
-│   └── src/app/                ← Next.js App Router pages
+│   ├── .env.local                ← NEXT_PUBLIC_API_URL (created by deploy.sh)
+│   ├── .next/                    ← production build (created by deploy.sh)
+│   └── src/app/                  ← Next.js App Router pages
 │
-├── logs/
-│   ├── backend.log             ← uvicorn / FastAPI logs
-│   └── frontend.log            ← Next.js logs
-└── run/
-    ├── backend.pid             ← PID file (manual start mode)
-    └── frontend.pid
+└── logs/
+    ├── deploy.log                ← full deploy output
+    ├── backend.log               ← uvicorn / FastAPI
+    └── frontend.log              ← Next.js production
 ```
+
+---
+
+## AI Analytics Pipeline
+
+7 chained agents powered by Groq `llama-3.3-70b-versatile`:
+
+| Agent | Role |
+|-------|------|
+| FeedbackCollectorValidator | Validates and normalises raw feedback data |
+| SentimentAnalyzer | Sentiment scoring per submission (−1 to +1) |
+| ThemeExtractor | Clusters feedback into recurring themes |
+| ScoringAgent | Trainer performance scores by dimension |
+| RecommendationAgent | Actionable improvement suggestions |
+| ExecutiveSummary | 3–5 sentence summary paragraph |
+| ConversationalRAG | Natural-language Q&A over trainer/batch data |
+
+POST `/api/v1/analytics/chat` — requires Bearer JWT token.
+
+---
+
+## Background Tasks
+
+Celery runs embedded (`memory://` broker). Tasks are synchronous — no separate worker process needed.
+
+| Task | Schedule |
+|------|----------|
+| `check_completed_batches` | Every 5 minutes |
+| `send_survey_reminders` | 09:00 UTC daily |
+| `cleanup_expired_tokens` | 02:00 UTC daily |
 
 ---
 
 ## Troubleshooting
 
-### Backend won't start
+### Backend does not start
+
 ```bash
-cd /opt/feedback-system-auto/backend
+# Test imports manually
+cd /opt/bilvantis-tip/backend
 source .venv/bin/activate
-python -c "from app.main import app; print('Import OK')"
-# Fix any errors shown, then:
+python -c "from app.main import app; print('OK')"
 deactivate
-bash /opt/feedback-system-auto/restart.sh backend
+
+# Check full logs
+sudo journalctl -u bilvantis-backend -n 60 --no-pager
+tail -60 /opt/bilvantis-tip/logs/backend.log
 ```
 
-### "Email: no provider" in System Health
+### Email shows "no provider" in System Health
+
 ```bash
-# 1. Check .env has SMTP values
-grep SMTP /opt/feedback-system-auto/backend/.env
+# Check values
+grep SMTP /opt/bilvantis-tip/backend/.env
 
-# 2. Edit if needed
-nano /opt/feedback-system-auto/backend/.env
+# Edit
+nano /opt/bilvantis-tip/backend/.env
 
-# 3. Restart backend so it picks up the new values
-bash /opt/feedback-system-auto/restart.sh backend
-
-# 4. Test via curl
-curl -s -X POST http://localhost:8002/api/v1/settings/test-email \
-  -H "Authorization: Bearer YOUR_JWT" \
-  -H "Content-Type: application/json" \
-  -d '{"to_email":"test@example.com"}'
+# Restart backend to pick up changes
+bash /opt/bilvantis-tip/restart.sh backend
 ```
 
-### AI chat returns errors
+### AI chat fails
+
 ```bash
-# Check the key is set
-grep GROQ_API_KEY /opt/feedback-system-auto/backend/.env
+# Check key
+grep GROQ_API_KEY /opt/bilvantis-tip/backend/.env
 
 # Test Groq connectivity
-GROQ_KEY=$(grep GROQ_API_KEY /opt/feedback-system-auto/backend/.env | cut -d= -f2-)
-curl -s -H "Authorization: Bearer $GROQ_KEY" \
-  https://api.groq.com/openai/v1/models | python3 -m json.tool | head -20
+KEY=$(grep GROQ_API_KEY /opt/bilvantis-tip/backend/.env | cut -d= -f2-)
+curl -s -H "Authorization: Bearer $KEY" \
+  https://api.groq.com/openai/v1/models | python3 -m json.tool | head -10
 ```
 
 ### Port already in use
+
 ```bash
-# Find what's using the port
-sudo ss -tlnp | grep -E ':8002|:3003'
-
-# Kill by port
-sudo kill $(sudo lsof -ti:8002) 2>/dev/null || true
-sudo kill $(sudo lsof -ti:3003) 2>/dev/null || true
-
-# Restart
-bash /opt/feedback-system-auto/start.sh
+sudo ss -tlnp | grep -E ':3003|:8002'
+sudo fuser -k 8002/tcp 2>/dev/null || true
+sudo fuser -k 3003/tcp 2>/dev/null || true
+bash /opt/bilvantis-tip/start.sh
 ```
 
-### VM IP changed (must rebuild frontend)
+### VM IP changed — must rebuild frontend
+
 ```bash
 NEW_IP=$(hostname -I | awk '{print $1}')
-# Update backend .env
-sed -i "s|^FRONTEND_URL=.*|FRONTEND_URL=http://${NEW_IP}:3003|" /opt/feedback-system-auto/backend/.env
-sed -i "s|^BACKEND_URL=.*|BACKEND_URL=http://${NEW_IP}:8002|"   /opt/feedback-system-auto/backend/.env
-# Update frontend env (NEXT_PUBLIC vars are baked into the bundle — must rebuild)
-echo "NEXT_PUBLIC_API_URL=http://${NEW_IP}:8002" > /opt/feedback-system-auto/frontend/.env.local
-cd /opt/feedback-system-auto/frontend && npm run build && cd ..
-bash /opt/feedback-system-auto/restart.sh
+sed -i "s|^FRONTEND_URL=.*|FRONTEND_URL=http://${NEW_IP}:3003|" /opt/bilvantis-tip/backend/.env
+sed -i "s|^BACKEND_URL=.*|BACKEND_URL=http://${NEW_IP}:8002|"   /opt/bilvantis-tip/backend/.env
+echo "NEXT_PUBLIC_API_URL=http://${NEW_IP}:8002" > /opt/bilvantis-tip/frontend/.env.local
+cd /opt/bilvantis-tip/frontend && NEXT_PUBLIC_API_URL="http://${NEW_IP}:8002" npm run build && cd ..
+bash /opt/bilvantis-tip/restart.sh
 ```
 
-### Services not starting on reboot
+### Services don't auto-start after reboot
+
 ```bash
 sudo systemctl enable bilvantis-backend bilvantis-frontend
 sudo systemctl daemon-reload
 ```
 
-### Permission errors on logs or database
+### Permission errors
+
 ```bash
-sudo chown -R $USER:$USER /opt/feedback-system-auto/logs
-sudo chown -R $USER:$USER /opt/feedback-system-auto/run
-sudo chown -R $USER:$USER /opt/feedback-system-auto/backend
+sudo chown -R ubuntu:ubuntu /opt/bilvantis-tip/logs
+sudo chown -R ubuntu:ubuntu /opt/bilvantis-tip/run
+sudo chown -R ubuntu:ubuntu /opt/bilvantis-tip/backend
 ```
 
 ---
 
 ## Updating the Application
 
-### Pull latest code and restart
 ```bash
-cd /opt/feedback-system-auto
+# Pull latest code
+cd /opt/bilvantis-tip
 git pull origin main
+
+# Backend update only (Python changes)
 bash restart.sh backend
 
-# If frontend files changed, rebuild first:
-cd frontend && npm run build && cd ..
+# Frontend update (UI changes — must rebuild)
+cd frontend && NEXT_PUBLIC_API_URL="$(grep BACKEND_URL backend/.env | cut -d= -f2-)" npm run build && cd ..
 bash restart.sh frontend
-```
 
-### Full redeploy (after package changes)
-```bash
-cd /opt/feedback-system-auto
-git pull origin main
-sudo bash deploy.sh   # idempotent — skips already-completed steps, preserves .env
+# Full redeploy (new packages, schema changes)
+sudo bash deploy.sh     # idempotent — preserves existing backend/.env
 ```
 
 ---
 
 ## Security Notes
 
-- `backend/.env` is excluded from ZIP and `.gitignore` — never commit it
-- `*.db` files are excluded from ZIP — target VM gets a fresh database seeded with admin user
-- `SECRET_KEY` is randomly generated per deployment by `deploy.sh`
-- Access tokens expire in 24 hours; feedback survey tokens expire in 72 hours
-- Gmail App Passwords cannot access your Google account — safe to use here
+- `backend/.env` — permissions 600, excluded from ZIP and `.gitignore`
+- `*.db` files — excluded from ZIP; target VM gets a fresh seeded database
+- `SECRET_KEY` — randomly generated by `deploy.sh` per deployment (unique per VM)
+- JWT access tokens expire in 24 hours; feedback survey tokens in 72 hours
+- Gmail App Passwords cannot access your Google account — safe to store
+- Services run as the deploying user (not root) — `NoNewPrivileges=true`
 
 ---
 
-*Bilvantis TIP v1.0.0 — Python 3.12 + FastAPI 0.115.5 + Next.js 15 + SQLite*
+*Bilvantis TIP v1.0.0 — Python 3.12 + FastAPI 0.115.5 + Next.js 15 + SQLite — Ubuntu 22.04 LTS*

@@ -1,51 +1,55 @@
+# =============================================================================
+# Bilvantis TIP — FastAPI Backend systemd Service Unit
+# Installed to: /etc/systemd/system/bilvantis-backend.service
+# NOTE: Paths are written at deploy time by deploy.sh — do not edit here.
+#       To regenerate, re-run: sudo bash deploy.sh
+# =============================================================================
+
 [Unit]
-Description=Bilvantis Training Intelligence Platform — FastAPI Backend
+Description=Bilvantis TIP — FastAPI Backend (Python 3.12 + uvicorn)
 Documentation=https://github.com/LUKALAPUSAIKUMARAO/feedback-sys-auto
 After=network.target network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
 
-# Working directory MUST be backend/ for SQLite path + .env resolution
-WorkingDirectory=APP_DIR_PLACEHOLDER/backend
+# deploy.sh sets User/Group to the user who ran sudo bash deploy.sh
+User=ubuntu
+Group=ubuntu
 
-# Activate venv and launch uvicorn
-ExecStart=VENV_DIR_PLACEHOLDER/bin/uvicorn app.main:app \
+# CRITICAL: WorkingDirectory must be backend/ directory
+# Reason 1: SQLite path  ./feedback_platform.db  is relative to CWD
+# Reason 2: app.core.config._ENV_FILE resolves backend/.env via __file__
+#            so CWD does NOT matter for .env — but sqlite DOES need backend/ CWD
+WorkingDirectory=/opt/bilvantis-tip/backend
+
+# Activate venv and run uvicorn (path written by deploy.sh)
+ExecStart=/opt/bilvantis-tip/backend/.venv/bin/uvicorn app.main:app \
     --host 0.0.0.0 \
     --port 8002 \
     --workers 1 \
     --loop asyncio \
     --log-level info
 
-# Graceful shutdown
-ExecStop=/bin/kill -SIGTERM $MAINPID
+ExecStop=/bin/kill -s SIGTERM $MAINPID
 KillSignal=SIGTERM
 TimeoutStopSec=30
 KillMode=mixed
 
-# Restart policy
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=60s
+StartLimitIntervalSec=120s
 StartLimitBurst=5
 
-# Environment
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 
-# Logging (journal + files)
-StandardOutput=append:APP_DIR_PLACEHOLDER/logs/backend.log
-StandardError=append:APP_DIR_PLACEHOLDER/logs/backend.log
+StandardOutput=append:/opt/bilvantis-tip/logs/backend.log
+StandardError=append:/opt/bilvantis-tip/logs/backend.log
 
-# Security hardening
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=APP_DIR_PLACEHOLDER/backend
-ReadWritePaths=APP_DIR_PLACEHOLDER/logs
 
 [Install]
 WantedBy=multi-user.target
